@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+message: "If you use this repository, please cite it as below:"
+title: "TransMLA: Equivalently Transforms Group Query Attention into Multi-head Latent Attention"
+authors:
+  - name: "Fanxu meng, Zengwei Yao, Muhan Zhang"
+    affiliation: "Peking University"
+date-released: "2025-01-02"
+version: "v1.0.0"
+url: "https://github.com/fxmeng/TransMLA"
