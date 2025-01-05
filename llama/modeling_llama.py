@@ -275,6 +275,7 @@ class LlamaMLAttention(nn.Module):
             )
 
         self.attention_dropout = config.attention_dropout
+        self.kv_dropout = config.kv_dropout
         self.hidden_size = config.hidden_size
         self.num_heads = config.num_attention_heads
         self.head_dim = getattr(config, "head_dim", self.hidden_size // self.num_heads)
@@ -329,9 +330,13 @@ class LlamaMLAttention(nn.Module):
             value_states = self.v_proj(hidden_states)
 
         query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
-        key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
-        value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
-
+        key_states = nn.functional.dropout(key_states, p=self.kv_dropout, training=self.training)
+        key_states = self.k_up_proj(key_states)
+        key_states = key_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
+        value_states = nn.functional.dropout(value_states, p=self.kv_dropout, training=self.training)
+        value_states = self.v_up_proj(value_states)
+        value_states = value_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
+        
         if position_embeddings is None:
             logger.warning_once(
                 "The attention layers in this model are transitioning from computing the RoPE embeddings internally "
@@ -348,15 +353,6 @@ class LlamaMLAttention(nn.Module):
             # sin and cos are specific to RoPE models; cache_position needed for the static cache
             cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
             key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
-
-        #key_states = repeat_kv(key_states, self.num_key_value_groups)
-        #value_states = repeat_kv(value_states, self.num_key_value_groups)
-        key_states = key_states.view(bsz, self.num_key_value_heads, -1, self.head_dim).transpose(1, 2).reshape(bsz, -1, self.num_key_value_heads*self.head_dim).contiguous()
-        key_states = self.k_up_proj(key_states)
-        key_states = key_states.reshape(bsz, -1, self.num_heads, self.head_dim).transpose(1, 2).contiguous()
-        value_states = value_states.view(bsz, self.num_key_value_heads, -1, self.head_dim).transpose(1, 2).reshape(bsz, -1, self.num_key_value_heads*self.head_dim).contiguous()
-        value_states = self.v_up_proj(value_states)
-        value_states = value_states.reshape(bsz, -1, self.num_heads, self.head_dim).transpose(1, 2).contiguous()
 
         attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim)
 
@@ -392,7 +388,7 @@ class LlamaMLAttention(nn.Module):
         return attn_output, attn_weights, past_key_value
 
 
-class LlamaFlashAttention2(LlamaMLAttention):
+class LlamaFlashMLAttention2(LlamaMLAttention):
     """
     Llama flash attention module. This module inherits from `LlamaMLAttention` as the weights of the module stays
     untouched. The only required change would be on the forward pass where it needs to correctly call the public API of
@@ -432,12 +428,18 @@ class LlamaFlashAttention2(LlamaMLAttention):
         key_states = self.k_proj(hidden_states)
         value_states = self.v_proj(hidden_states)
 
+        key_states = nn.functional.dropout(key_states, p=self.kv_dropout, training=self.training)
+        key_states = self.k_up_proj(key_states)
+        value_states = nn.functional.dropout(value_states, p=self.kv_dropout, training=self.training)
+        value_states = self.v_up_proj(value_states)
+        
+
         # Flash attention requires the input to have the shape
         # batch_size x seq_length x head_dim x hidden_dim
         # therefore we just need to keep the original shape
         query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
-        key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
-        value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
+        key_states = key_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
+        value_states = value_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
 
         if position_embeddings is None:
             logger.warning_once(
@@ -512,7 +514,7 @@ class LlamaFlashAttention2(LlamaMLAttention):
         return attn_output, attn_weights, past_key_value
 
 
-class LlamaSdpaAttention(LlamaMLAttention):
+class LlamaSdpaMLAttention(LlamaMLAttention):
     """
     Llama attention module using torch.nn.functional.scaled_dot_product_attention. This module inherits from
     `LlamaMLAttention` as the weights of the module stays untouched. The only changes are on the forward pass to adapt to
@@ -556,9 +558,13 @@ class LlamaSdpaAttention(LlamaMLAttention):
         value_states = self.v_proj(hidden_states)
 
         query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
-        key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
-        value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
-
+        key_states = nn.functional.dropout(key_states, p=self.kv_dropout, training=self.training)
+        key_states = self.k_up_proj(key_states)
+        key_states = key_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
+        value_states = nn.functional.dropout(value_states, p=self.kv_dropout, training=self.training)
+        value_states = self.v_up_proj(value_states)
+        value_states = value_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
+        
         if position_embeddings is None:
             logger.warning_once(
                 "The attention layers in this model are transitioning from computing the RoPE embeddings internally "
@@ -575,15 +581,6 @@ class LlamaSdpaAttention(LlamaMLAttention):
             # sin and cos are specific to RoPE models; cache_position needed for the static cache
             cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
             key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
-
-        #key_states = repeat_kv(key_states, self.num_key_value_groups)
-        #value_states = repeat_kv(value_states, self.num_key_value_groups)
-        key_states = key_states.view(bsz, self.num_key_value_heads, -1, self.head_dim).transpose(1, 2).reshape(bsz, -1, self.num_key_value_heads*self.head_dim).contiguous()
-        key_states = self.k_up_proj(key_states)
-        key_states = key_states.reshape(bsz, -1, self.num_heads, self.head_dim).transpose(1, 2).contiguous()
-        value_states = value_states.view(bsz, self.num_key_value_heads, -1, self.head_dim).transpose(1, 2).reshape(bsz, -1, self.num_key_value_heads*self.head_dim).contiguous()
-        value_states = self.v_up_proj(value_states)
-        value_states = value_states.reshape(bsz, -1, self.num_heads, self.head_dim).transpose(1, 2).contiguous()
 
         causal_mask = attention_mask
         if attention_mask is not None:
@@ -619,8 +616,8 @@ class LlamaSdpaAttention(LlamaMLAttention):
 
 LLAMA_ATTENTION_CLASSES = {
     "eager": LlamaMLAttention,
-    "flash_attention_2": LlamaFlashAttention2,
-    "sdpa": LlamaSdpaAttention,
+    "flash_attention_2": LlamaFlashMLAttention2,
+    "sdpa": LlamaSdpaMLAttention,
 }
 
 

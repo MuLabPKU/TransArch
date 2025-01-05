@@ -249,6 +249,7 @@ class Qwen2MLAttention(nn.Module):
         self.rope_theta = config.rope_theta
         self.is_causal = True
         self.attention_dropout = config.attention_dropout
+        self.kv_dropout = config.kv_dropout
 
         if (self.head_dim * self.num_heads) != self.hidden_size:
             raise ValueError(
@@ -282,8 +283,12 @@ class Qwen2MLAttention(nn.Module):
         value_states = self.v_proj(hidden_states)
 
         query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
-        key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
-        value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
+        key_states = nn.functional.dropout(key_states, p=self.kv_dropout, training=self.training)
+        key_states = self.k_up_proj(key_states)
+        key_states = key_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
+        value_states = nn.functional.dropout(value_states, p=self.kv_dropout, training=self.training)
+        value_states = self.v_up_proj(value_states)
+        value_states = value_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
 
         if position_embeddings is None:
             logger.warning_once(
@@ -300,16 +305,6 @@ class Qwen2MLAttention(nn.Module):
         if past_key_value is not None:
             cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}  # Specific to RoPE models
             key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
-
-        # repeat k/v heads if n_kv_heads < n_heads
-        #key_states = repeat_kv(key_states, self.num_key_value_groups)
-        #value_states = repeat_kv(value_states, self.num_key_value_groups)
-        key_states = key_states.view(bsz, self.num_key_value_heads, -1, self.head_dim).transpose(1, 2).reshape(bsz, -1, self.num_key_value_heads*self.head_dim).contiguous()
-        key_states = self.k_up_proj(key_states)
-        key_states = key_states.reshape(bsz, -1, self.num_heads, self.head_dim).transpose(1, 2).contiguous()
-        value_states = value_states.view(bsz, self.num_key_value_heads, -1, self.head_dim).transpose(1, 2).reshape(bsz, -1, self.num_key_value_heads*self.head_dim).contiguous()
-        value_states = self.v_up_proj(value_states)
-        value_states = value_states.reshape(bsz, -1, self.num_heads, self.head_dim).transpose(1, 2).contiguous()
 
         attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim)
         if attention_mask is not None:  # no matter the length, we just slice it
@@ -374,8 +369,12 @@ class Qwen2FlashMLAttention2(Qwen2MLAttention):
         value_states = self.v_proj(hidden_states)
 
         query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
-        key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
-        value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
+        key_states = nn.functional.dropout(key_states, p=self.kv_dropout, training=self.training)
+        key_states = self.k_up_proj(key_states)
+        key_states = key_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
+        value_states = nn.functional.dropout(value_states, p=self.kv_dropout, training=self.training)
+        value_states = self.v_up_proj(value_states)
+        value_states = value_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
 
         if position_embeddings is None:
             logger.warning_once(
@@ -393,16 +392,6 @@ class Qwen2FlashMLAttention2(Qwen2MLAttention):
             cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}  # Specific to RoPE models
             key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
 
-        # repeat k/v heads if n_kv_heads < n_heads
-        #key_states = repeat_kv(key_states, self.num_key_value_groups)
-        #value_states = repeat_kv(value_states, self.num_key_value_groups)
-        key_states = key_states.view(bsz, self.num_key_value_heads, -1, self.head_dim).transpose(1, 2).reshape(bsz, -1, self.num_key_value_heads*self.head_dim).contiguous()
-        key_states = self.k_up_proj(key_states)
-        key_states = key_states.reshape(bsz, -1, self.num_heads, self.head_dim).transpose(1, 2).contiguous()
-        value_states = value_states.view(bsz, self.num_key_value_heads, -1, self.head_dim).transpose(1, 2).reshape(bsz, -1, self.num_key_value_heads*self.head_dim).contiguous()
-        value_states = self.v_up_proj(value_states)
-        value_states = value_states.reshape(bsz, -1, self.num_heads, self.head_dim).transpose(1, 2).contiguous()
-        
         dropout_rate = 0.0 if not self.training else self.attention_dropout
 
         # In PEFT, usually we cast the layer norms in float32 for training stability reasons
@@ -505,8 +494,13 @@ class Qwen2SdpaMLAttention(Qwen2MLAttention):
         value_states = self.v_proj(hidden_states)
 
         query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
-        key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
-        value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
+        key_states = nn.functional.dropout(key_states, p=self.kv_dropout, training=self.training)
+        key_states = self.k_up_proj(key_states)
+        key_states = key_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
+        value_states = nn.functional.dropout(value_states, p=self.kv_dropout, training=self.training)
+        value_states = self.v_up_proj(value_states)
+        value_states = value_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
+        
 
         if position_embeddings is None:
             logger.warning_once(
@@ -524,14 +518,6 @@ class Qwen2SdpaMLAttention(Qwen2MLAttention):
             cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}  # Specific to RoPE models
             key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
 
-        #key_states = repeat_kv(key_states, self.num_key_value_groups)
-        #value_states = repeat_kv(value_states, self.num_key_value_groups)
-        key_states = key_states.view(bsz, self.num_key_value_heads, -1, self.head_dim).transpose(1, 2).reshape(bsz, -1, self.num_key_value_heads*self.head_dim).contiguous()
-        key_states = self.k_up_proj(key_states)
-        key_states = key_states.reshape(bsz, -1, self.num_heads, self.head_dim).transpose(1, 2).contiguous()
-        value_states = value_states.view(bsz, self.num_key_value_heads, -1, self.head_dim).transpose(1, 2).reshape(bsz, -1, self.num_key_value_heads*self.head_dim).contiguous()
-        value_states = self.v_up_proj(value_states)
-        value_states = value_states.reshape(bsz, -1, self.num_heads, self.head_dim).transpose(1, 2).contiguous()
 
         causal_mask = attention_mask
         if attention_mask is not None:  # no matter the length, we just slice it
