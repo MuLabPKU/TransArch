@@ -12,6 +12,12 @@ pip install torch==2.4.0
 pip install transformers==4.46.2 
 pip install accelerate>=0.26.0
 pip install ipykernel
+pip install deepspeed==0.15.4
+pip install vllm==0.6.2
+pip install tensorboardX
+pip install tqdm attrdict fraction
+pip install human_eval==1.0.3
+pip install evalplus==0.2.1
 ```
 # Quick Start
 ```
