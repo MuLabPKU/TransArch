@@ -146,7 +146,7 @@ class Qwen2Config(PretrainedConfig):
         rope_theta=10000.0,
         rope_scaling=None,
         rope_repeat=False,
-        partial_rotary_factor = 2,
+        partial_rotary_factor = 1,
         absorb=False,
         use_sliding_window=False,
         sliding_window=4096,

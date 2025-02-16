@@ -162,6 +162,9 @@ class LlamaConfig(PretrainedConfig):
         tie_word_embeddings=False,
         rope_theta=10000.0,
         rope_scaling=None,
+        rope_repeat=False,
+        partial_rotary_factor = 2,
+        absorb=False,
         attention_bias=False,
         attention_dropout=0.0,
         kv_dropout=0.0,
@@ -188,6 +191,9 @@ class LlamaConfig(PretrainedConfig):
         self.use_cache = use_cache
         self.rope_theta = rope_theta
         self.rope_scaling = rope_scaling
+        self.rope_repeat = rope_repeat
+        self.partial_rotary_factor = partial_rotary_factor
+        self.absorb = absorb
         self.attention_bias = attention_bias
         self.attention_dropout = attention_dropout
         self.kv_dropout = kv_dropout
