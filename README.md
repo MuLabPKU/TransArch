@@ -33,7 +33,7 @@ Please follow the implementation provided in qwen_transMLA_rope.ipynb.
 
 # To-Do
 - [ ] Publish the technical report for the new version, detailing how TransMLA is compatible with RoPE, supports the Absorb operation, and includes experimental comparisons.
-- [ ] Add support for vLLM to improve inference speed.
+- [x] Add support for vLLM to improve inference speed.
 - [ ] Extend support to additional models (e.g., LLaMA, Mistral, Gemma2, etc.).
 - [ ] Fine-tune on R1 distillation datasets.
 

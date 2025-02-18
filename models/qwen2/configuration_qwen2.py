@@ -148,6 +148,7 @@ class Qwen2Config(PretrainedConfig):
         rope_repeat=False,
         partial_rotary_factor = 1,
         absorb=False,
+        latent_dim_factor=1,
         use_sliding_window=False,
         sliding_window=4096,
         max_window_layers=28,
@@ -179,6 +180,7 @@ class Qwen2Config(PretrainedConfig):
         self.rope_repeat = rope_repeat
         self.partial_rotary_factor = partial_rotary_factor
         self.absorb = absorb
+        self.latent_dim_factor = latent_dim_factor
         self.attention_dropout = attention_dropout
         self.kv_dropout = kv_dropout
         # Validate the correctness of rotary position embeddings parameters
