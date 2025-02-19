@@ -15,15 +15,9 @@ Despite the proven efficiency and effectiveness of MLA in DeepseekV2/V3, major m
 conda create -n transmla python=3.10.14
 conda activate transmla
 pip install torch==2.4.0
-pip install transformers==4.46.2 
+pip install vllm==0.6.6.post1
 pip install accelerate>=0.26.0
 pip install ipykernel
-pip install deepspeed==0.15.4
-pip install vllm==0.6.2
-pip install tensorboardX
-pip install tqdm attrdict fraction
-pip install human_eval==1.0.3
-pip install evalplus==0.2.1
 ```
 
 # DIY
@@ -33,6 +27,7 @@ Please follow the implementation provided in qwen_transMLA_rope.ipynb.
 
 # To-Do
 - [ ] Publish the technical report for the new version, detailing how TransMLA is compatible with RoPE, supports the Absorb operation, and includes experimental comparisons.
+- [ ] Compress the dimensions of the KV cache to improve inference speed.
 - [x] Add support for vLLM to improve inference speed.
 - [ ] Extend support to additional models (e.g., LLaMA, Mistral, Gemma2, etc.).
 - [ ] Fine-tune on R1 distillation datasets.
