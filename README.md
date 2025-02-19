@@ -14,7 +14,6 @@ Despite the proven efficiency and effectiveness of MLA in DeepseekV2/V3, major m
 ```
 conda create -n transmla python=3.10.14
 conda activate transmla
-pip install torch==2.4.0
 pip install vllm==0.6.6.post1
 pip install accelerate>=0.26.0
 pip install ipykernel
