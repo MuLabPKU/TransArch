@@ -20,7 +20,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Inference-only Qwen2MLA model compatible with HuggingFace weights."""
+"""Inference-only Qwen2 model compatible with HuggingFace weights."""
 from typing import Iterable, List, Optional, Set, Tuple, Union
 
 import torch
@@ -101,23 +101,21 @@ class Qwen2MLAttention(nn.Module):
     def __init__(self,
                  hidden_size: int,
                  num_heads: int,
+                 head_dim: int,
                  num_kv_heads: int,
                  max_position: int = 4096 * 32,
                  rope_theta: float = 10000,
                  cache_config: Optional[CacheConfig] = None,
                  quant_config: Optional[QuantizationConfig] = None,
                  rope_scaling: Optional[Tuple] = None,
-                 prefix: str = "",
-                 latent_dim_factor: int = 1) -> None:
-        
+                 prefix: str = "") -> None:
         super().__init__()
         self.hidden_size = hidden_size
         tp_size = get_tensor_model_parallel_world_size()
         self.total_num_heads = num_heads
-        assert tp_size==1
         assert self.total_num_heads % tp_size == 0
         self.num_heads = self.total_num_heads // tp_size
-        self.total_num_kv_heads = num_kv_heads * latent_dim_factor
+        self.total_num_kv_heads = num_kv_heads
         if self.total_num_kv_heads >= tp_size:
             # Number of KV heads is greater than TP size, so we partition
             # the KV heads across multiple tensor parallel GPUs.
@@ -127,16 +125,18 @@ class Qwen2MLAttention(nn.Module):
             # the KV heads across multiple tensor parallel GPUs.
             assert tp_size % self.total_num_kv_heads == 0
         self.num_kv_heads = max(1, self.total_num_kv_heads // tp_size)
-        self.head_dim = self.total_num_kv_heads * hidden_size // self.total_num_heads
+        self.head_dim = head_dim
         self.q_size = self.num_heads * self.head_dim
-        self.kv_size = self.head_dim
-        self.scaling = (hidden_size // self.total_num_heads)**-0.5
+        self.kv_size = self.num_kv_heads * self.head_dim
+        ori_head_dim = hidden_size // num_heads
+        self.scaling = ori_head_dim**-0.5
         self.rope_theta = rope_theta
+
         self.qkv_proj = QKVParallelLinear(
             hidden_size,
             self.head_dim,
             self.total_num_heads,
-            1,
+            self.total_num_kv_heads,
             bias=True,
             quant_config=quant_config,
             prefix=f"{prefix}.qkv_proj",
@@ -159,7 +159,7 @@ class Qwen2MLAttention(nn.Module):
         self.attn = Attention(self.num_heads,
                               self.head_dim,
                               self.scaling,
-                              num_kv_heads=1,
+                              num_kv_heads=self.num_kv_heads,
                               cache_config=cache_config,
                               quant_config=quant_config,
                               prefix=f"{prefix}.attn")
@@ -204,12 +204,12 @@ class Qwen2DecoderLayer(nn.Module):
             num_heads=config.num_attention_heads,
             max_position=config.max_position_embeddings,
             num_kv_heads=config.num_key_value_heads,
+            head_dim=config.head_dim,
             rope_theta=rope_theta,
             cache_config=cache_config,
             quant_config=quant_config,
             rope_scaling=rope_scaling,
             prefix=f"{prefix}.self_attn",
-            latent_dim_factor=config.latent_dim_factor,
         )
         self.mlp = Qwen2MLP(
             hidden_size=self.hidden_size,
@@ -509,7 +509,7 @@ class Qwen2MLAForCausalLM(nn.Module, SupportsLoRA, SupportsPP):
         return loader.load_weights(weights)
 
 
-class Qwen2EmbeddingModel(nn.Module, SupportsLoRA, SupportsPP):
+class Qwen2MLAEmbeddingModel(nn.Module, SupportsLoRA, SupportsPP):
     packed_modules_mapping = {
         "qkv_proj": [
             "q_proj",

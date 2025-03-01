@@ -231,11 +231,10 @@ def repeat_apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim
     """
     cos = cos.unsqueeze(unsqueeze_dim)
     sin = sin.unsqueeze(unsqueeze_dim)
-    group= q.shape[-1]//cos.shape[-1]
-    cos = cos.repeat(1,1,1,group)
-    sin = sin.repeat(1,1,1,group)
-    q_embed = (q * cos) + (repeat_rotate_half(q, group) * sin)
-    k_embed = (k * cos) + (repeat_rotate_half(k, group) * sin)
+    repeat = k.shape[-1]//cos.shape[-1]
+    k_embed = (k * cos.repeat(1,1,1,repeat)) + (repeat_rotate_half(k, repeat) * sin.repeat(1,1,1,repeat))
+    repeat = q.shape[-1]//cos.shape[-1]
+    q_embed = (q * cos.repeat(1,1,1,repeat)) + (repeat_rotate_half(q, repeat) * sin.repeat(1,1,1,repeat))
     return q_embed, k_embed
 
 
@@ -253,6 +252,17 @@ class Qwen2MLP(nn.Module):
     def forward(self, hidden_state):
         return self.down_proj(self.act_fn(self.gate_proj(hidden_state)) * self.up_proj(hidden_state))
 
+# Copied from transformers.models.llama.modeling_llama.repeat_kv
+def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
+    """
+    This is the equivalent of torch.repeat_interleave(x, dim=1, repeats=n_rep). The hidden states go from (batch,
+    num_key_value_heads, seqlen, head_dim) to (batch, num_attention_heads, seqlen, head_dim)
+    """
+    batch, num_key_value_heads, slen, head_dim = hidden_states.shape
+    if n_rep == 1:
+        return hidden_states
+    hidden_states = hidden_states[:, :, None, :, :].expand(batch, num_key_value_heads, n_rep, slen, head_dim)
+    return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
 
 class Qwen2MLAttention(nn.Module):
     """
@@ -273,8 +283,10 @@ class Qwen2MLAttention(nn.Module):
 
         self.hidden_size = config.hidden_size
         self.num_heads = config.num_attention_heads
-        self.num_key_value_heads = config.num_key_value_heads * config.latent_dim_factor
-        self.head_dim = getattr(config, "head_dim", self.num_key_value_heads * config.hidden_size // config.num_attention_heads)
+        self.ori_head_dim = config.hidden_size // config.num_attention_heads
+        self.num_kv_heads = config.num_key_value_heads
+        self.kv_head_dim = config.head_dim
+        self.latent_dim = config.num_key_value_heads * config.head_dim
         self.max_position_embeddings = config.max_position_embeddings
         self.rope_theta = config.rope_theta
         self.rope_repeat = config.rope_repeat
@@ -283,16 +295,16 @@ class Qwen2MLAttention(nn.Module):
         self.attention_dropout = config.attention_dropout
         self.kv_dropout = config.kv_dropout
 
-        self.k_proj = nn.Linear(self.hidden_size, self.head_dim, bias=True)
-        self.v_proj = nn.Linear(self.hidden_size, self.head_dim, bias=True)
+        self.k_proj = nn.Linear(self.hidden_size, self.latent_dim, bias=True)
+        self.v_proj = nn.Linear(self.hidden_size, self.latent_dim, bias=True)
         if not self.absorb:
             self.q_proj = nn.Linear(self.hidden_size, self.hidden_size, bias=True)
             self.o_proj = nn.Linear(self.hidden_size, self.hidden_size, bias=False)
-            self.k_up_proj = nn.Linear(self.head_dim, self.hidden_size, bias=False)
-            self.v_up_proj = nn.Linear(self.head_dim, self.hidden_size, bias=False)
+            self.k_up_proj = nn.Linear(self.kv_head_dim, self.hidden_size, bias=False)
+            self.v_up_proj = nn.Linear(self.kv_head_dim, self.hidden_size, bias=False)
         else:
-            self.q_proj = nn.Linear(self.hidden_size, self.num_heads * self.head_dim, bias=True)
-            self.o_proj = nn.Linear(self.num_heads * self.head_dim, self.hidden_size, bias=False)
+            self.q_proj = nn.Linear(self.hidden_size, self.num_heads * self.kv_head_dim, bias=True)
+            self.o_proj = nn.Linear(self.num_heads * self.kv_head_dim, self.hidden_size, bias=False)
 
         self.rotary_emb = Qwen2RotaryEmbedding(config=self.config)
 
@@ -315,17 +327,16 @@ class Qwen2MLAttention(nn.Module):
 
         if self.absorb:
             query_states = nn.functional.dropout(query_states, p=self.kv_dropout, training=self.training)
-            query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
-            key_states = key_states.unsqueeze(1) # (bsz, 1, kv_len, self.head_dim)
-            value_states = nn.functional.dropout(value_states, p=self.kv_dropout, training=self.training).unsqueeze(1) # (bsz, 1, kv_len, self.head_dim)
+            query_states = query_states.view(bsz, q_len, self.num_heads, self.kv_head_dim).transpose(1, 2)
         else:
-            query_states = query_states.view(bsz, q_len, self.num_heads, -1)
-            k_up_weight = self.k_up_proj.weight.view(self.num_heads, -1,  self.head_dim)
-            query_states = torch.einsum("bthd,hdc->bhtc",query_states, k_up_weight)
-            key_states = nn.functional.dropout(key_states, p=self.kv_dropout, training=self.training).unsqueeze(1)
-            value_states = nn.functional.dropout(value_states, p=self.kv_dropout, training=self.training)
-            value_states = self.v_up_proj(value_states)
-            value_states = value_states.view(bsz, q_len, self.num_heads, -1).transpose(1, 2)
+            query_states = query_states.view(bsz, q_len, self.num_heads, self.ori_head_dim)
+            k_up_weight = self.k_up_proj.weight.view(self.num_heads, self.ori_head_dim, self.kv_head_dim)
+            query_states = torch.einsum("bthd,hdc->bhtc", query_states, k_up_weight)
+            
+        key_states = nn.functional.dropout(key_states, p=self.kv_dropout, training=self.training)
+        key_states = key_states.view(bsz, -1, self.num_kv_heads, self.kv_head_dim).transpose(1, 2)
+        value_states = nn.functional.dropout(value_states, p=self.kv_dropout, training=self.training)
+        value_states = value_states.view(bsz, -1, self.num_kv_heads, self.kv_head_dim).transpose(1, 2)
 
         if position_embeddings is None:
             logger.warning_once(
@@ -341,12 +352,14 @@ class Qwen2MLAttention(nn.Module):
             query_states, key_states = repeat_apply_rotary_pos_emb(query_states, key_states, cos, sin)
         else:
             query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
-
+        
         if past_key_value is not None:
             cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}  # Specific to RoPE models
             key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
 
-        attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim//self.num_key_value_heads)
+        key_states = repeat_kv(key_states, self.num_heads//self.num_kv_heads)
+
+        attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.ori_head_dim)
         if attention_mask is not None:  # no matter the length, we just slice it
             causal_mask = attention_mask[:, :, :, : key_states.shape[-2]]
             attn_weights = attn_weights + causal_mask
@@ -354,6 +367,14 @@ class Qwen2MLAttention(nn.Module):
         # upcast attention to fp32
         attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
         attn_weights = nn.functional.dropout(attn_weights, p=self.attention_dropout, training=self.training)
+       
+        if self.absorb:
+            value_states = repeat_kv(value_states, self.num_heads//self.num_kv_heads)
+        else:
+            v_up_weight = self.v_up_proj.weight.view(self.num_kv_heads, self.num_heads//self.num_kv_heads, self.ori_head_dim, self.kv_head_dim)
+            value_states = torch.einsum("bhtc,hgdc->bhgtd", value_states, v_up_weight)
+            value_states = value_states.reshape(bsz, self.num_heads, -1, self.ori_head_dim)
+            
         attn_output = torch.matmul(attn_weights, value_states)
 
         attn_output = attn_output.transpose(1, 2).contiguous()
@@ -707,6 +728,8 @@ class Qwen2MLAModel(Qwen2MLAPreTrainedModel):
         )
         self._attn_implementation = config._attn_implementation
         self.norm = Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        if config.rope_repeat:
+            config.partial_rotary_factor = config.hidden_size/(config.head_dim*config.num_attention_heads)
         self.rotary_emb = Qwen2RotaryEmbedding(config=config)
 
         self.gradient_checkpointing = False
