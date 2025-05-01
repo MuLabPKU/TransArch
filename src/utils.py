@@ -262,12 +262,12 @@ def insert_kv_hooks(model):
     def key_hook_fn(module, input, output, index):
         if index not in key_outputs:
             key_outputs[index] = []
-        key_outputs[index].append(output)
+        key_outputs[index].append(output.to("cpu"))
         
     def value_hook_fn(module, input, output, index):
         if index not in value_outputs:
             value_outputs[index] = []
-        value_outputs[index].append(output)
+        value_outputs[index].append(output.to("cpu"))
 
     for idx, layer in enumerate(model.model.layers):
         key_hook = layer.self_attn.k_proj.register_forward_hook(lambda module, input, output, idx=idx: key_hook_fn(module, input, output, idx))
@@ -294,7 +294,7 @@ def get_kv_calibrate_outputs(
     logging.info("Evaluating perplexity...")
     for batch in tqdm(trainloader):
         batch = map_tensors(batch, model.model.embed_tokens.weight.device)
-        ignore_masks.append(batch["attention_mask"])
+        ignore_masks.append(batch["attention_mask"].to("cpu"))
         model(**batch)
 
     elapsed = time.time() - start_time
