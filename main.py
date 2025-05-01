@@ -16,12 +16,10 @@ parser.add_argument("--cal-batch-size", type=int, default=1, help="Batch size fo
 parser.add_argument("--cal-max-seqlen", type=int, default=2048, help="Maximum sequence length for the calibration data.")
 parser.add_argument("--varied-seqlen", action="store_true", help="Varied sequence lengths in the calibration data.")
 parser.add_argument("--seed", type=int, default=42, help="Seed for sampling the calibration data.")
-parser.add_argument("--ppl-eval-batch-size", type=int, default=0, help="Batch size for evaluating the perplexity.")
+parser.add_argument("--ppl-eval-batch-size", type=int, default=1, help="Batch size for evaluating the perplexity.")
 parser.add_argument("--dim2head", type=int, default=1, help="")
 parser.add_argument("--rope-head", type=int, default=1, help="")
 parser.add_argument("--qk-mqa-dim", type=int, default=64, help="")
-parser.add_argument("--v-mqa-dim", type=int, default=64, help="")
-parser.add_argument("--q-lora-rank", type=int, default=2048, help="")
 parser.add_argument("--kv-lora-rank", type=int, default=896, help="")
 parser.add_argument("--save-outputs", type=str, default="kv_calibrate_outputs", help="Feature output path.")
 args = parser.parse_args()
@@ -59,16 +57,19 @@ def main(args: argparse.Namespace) -> None:
         dataset_ppl = evaluate_ppl(model, tokenizer.pad_token_id, test_loader)
         print(f'Original ppl: {dataset_ppl:.4f}')
 
-    if args.save_outputs is not None \
-        and os.path.exists(os.path.join(args.save_outputs, "key_outputs.pt")) \
-            and os.path.exists(os.path.join(args.save_outputs, "value_outputs.pt")):
+    if os.path.exists(os.path.join(args.save_outputs, "key_outputs.pt")) and os.path.exists(os.path.join(args.save_outputs, "value_outputs.pt")):
         print(f"load calculate feature from {args.save_outputs}")
         key_outputs = torch.load(os.path.join(args.save_outputs, "key_outputs.pt"), "cpu")
         value_outputs = torch.load(os.path.join(args.save_outputs, "value_outputs.pt"), "cpu")
     else:
         print(f"generate calculate feature")
         key_outputs, value_outputs = get_kv_calibrate_outputs(model, train_loader)
+        if not os.path.exists(args.save_outputs):
+            os.makedirs(args.save_outputs)
+        torch.save(key_outputs, os.path.join(args.save_outputs, "key_outputs.pt"))
+        torch.save(value_outputs, os.path.join(args.save_outputs, "value_outputs.pt"))
 
+    print("+"*10+"RemoveRope Model:"+"+"*10)
     for layer_idx, layer in enumerate(model.model.layers):
         new_self_attn = RemoveRope(
             layer.self_attn, 
@@ -79,12 +80,12 @@ def main(args: argparse.Namespace) -> None:
         )
         setattr(layer, "self_attn", new_self_attn)
         
-    print("+"*10+"RemoveRope Model:"+"+"*10)
     print(model)
     if args.ppl_eval_batch_size > 0:
         dataset_ppl = evaluate_ppl(model, tokenizer.pad_token_id, test_loader)
         print(f'Remove RoPE ppl: {dataset_ppl:.4f}')
-        
+
+    print("+"*10+"LoraQKV Model:"+"+"*10)
     for layer_idx, layer in enumerate(model.model.layers):
         assert args.rope_head == 1
         new_self_attn = LoraQKV(
@@ -96,18 +97,26 @@ def main(args: argparse.Namespace) -> None:
         )
         setattr(layer, "self_attn", new_self_attn)
 
-    print("+"*10+"LoraQKV Model:"+"+"*10)
     print(model)
     
     if args.ppl_eval_batch_size > 0:
         dataset_ppl = evaluate_ppl(model, tokenizer.pad_token_id, test_loader)
         print(f'Low rank approximate QKV ppl: {dataset_ppl:.4f}')
         
-    if args.save_outputs is not None:
-        if not os.path.exists(args.save_outputs):
-            os.makedirs(args.save_outputs)
-        torch.save(key_outputs, os.path.join(args.save_outputs, "key_outputs.pt"))
-        torch.save(value_outputs, os.path.join(args.save_outputs, "value_outputs.pt"))
+    print("+"*10+"AbsorbQKVO Model:"+"+"*10)
+    for layer_idx, layer in enumerate(model.model.layers):
+        assert args.rope_head == 1
+        new_self_attn = AbsorbQKVO(
+            layer.self_attn, 
+        )
+        setattr(layer, "self_attn", new_self_attn)
+
+    print(model)
+    
+    if args.ppl_eval_batch_size > 0:
+        dataset_ppl = evaluate_ppl(model, tokenizer.pad_token_id, test_loader)
+        print(f'Low rank approximate QKV ppl: {dataset_ppl:.4f}')
+        
     
 if __name__ == "__main__":
     main(args)
