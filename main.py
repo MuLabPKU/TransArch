@@ -5,23 +5,26 @@ import torch
 from src.utils import get_dataset, prepare_dataloader, prepare_test_dataloader, evaluate_ppl, get_kv_calibrate_outputs
 from src.remove_rope import RemoveRope
 from src.lora_qkv import LoraQKV
+from src.absorb import AbsorbQKVO
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--model-path", type=str, default="/root/mfx/huggingface/meta-llama/Llama-3.2-1B/", help="Model to load")
-parser.add_argument("--dtype", type=str, help="Data type to use.", choices=["fp32", "fp16", "bf16"], default="bp16")
+parser.add_argument("--model-path", type=str, default="meta-llama/Llama-3.2-1B/", help="Model to load")
+parser.add_argument("--dtype", type=str, help="Data type to use.", choices=["fp32", "fp16", "bf16"], default="bf16")
 parser.add_argument("--device", type=str, help="Device to use.", choices=["cpu", "cuda", "auto"], default="auto")
 parser.add_argument("--cal-dataset", type=str, help="Dataset to calibrate and calculate perplexity on.", choices=["wikitext2", "ptb", "c4", "alpaca"], default="wikitext2")
-parser.add_argument("--cal-nsamples", type=int, help="Number of samples of the calibration data to load.", default=128)
+parser.add_argument("--cal-nsamples", type=int, help="Number of samples of the calibration data to load.", default=1)
 parser.add_argument("--cal-batch-size", type=int, default=1, help="Batch size for loading the calibration data.")
 parser.add_argument("--cal-max-seqlen", type=int, default=2048, help="Maximum sequence length for the calibration data.")
 parser.add_argument("--varied-seqlen", action="store_true", help="Varied sequence lengths in the calibration data.")
 parser.add_argument("--seed", type=int, default=42, help="Seed for sampling the calibration data.")
-parser.add_argument("--ppl-eval-batch-size", type=int, default=1, help="Batch size for evaluating the perplexity.")
+parser.add_argument("--ppl-eval-batch-size", type=int, default=0, help="Batch size for evaluating the perplexity.")
 parser.add_argument("--dim2head", type=int, default=1, help="")
 parser.add_argument("--rope-head", type=int, default=1, help="")
 parser.add_argument("--qk-mqa-dim", type=int, default=64, help="")
+parser.add_argument("--v-mqa-dim", type=int, default=64, help="")
+parser.add_argument("--q-lora-rank", type=int, default=2048, help="")
 parser.add_argument("--kv-lora-rank", type=int, default=896, help="")
-parser.add_argument("--save-outputs", type=str, default="kv_calibrate_outputs", help="Feature output path.")
+parser.add_argument("--save-path", type=str, default="outputs", help="output path.")
 args = parser.parse_args()
 
 def main(args: argparse.Namespace) -> None:
@@ -57,17 +60,18 @@ def main(args: argparse.Namespace) -> None:
         dataset_ppl = evaluate_ppl(model, tokenizer.pad_token_id, test_loader)
         print(f'Original ppl: {dataset_ppl:.4f}')
 
-    if os.path.exists(os.path.join(args.save_outputs, "key_outputs.pt")) and os.path.exists(os.path.join(args.save_outputs, "value_outputs.pt")):
-        print(f"load calculate feature from {args.save_outputs}")
-        key_outputs = torch.load(os.path.join(args.save_outputs, "key_outputs.pt"), "cpu")
-        value_outputs = torch.load(os.path.join(args.save_outputs, "value_outputs.pt"), "cpu")
+    if not os.path.exists(args.save_path):
+        os.makedirs(args.save_path)
+
+    if os.path.exists(os.path.join(args.save_path, "key_outputs.pt")) and os.path.exists(os.path.join(args.save_path, "value_outputs.pt")):
+        print(f"load calculate feature from {args.save_path}")
+        key_outputs = torch.load(os.path.join(args.save_path, "key_outputs.pt"), "cpu")
+        value_outputs = torch.load(os.path.join(args.save_path, "value_outputs.pt"), "cpu")
     else:
         print(f"generate calculate feature")
         key_outputs, value_outputs = get_kv_calibrate_outputs(model, train_loader)
-        if not os.path.exists(args.save_outputs):
-            os.makedirs(args.save_outputs)
-        torch.save(key_outputs, os.path.join(args.save_outputs, "key_outputs.pt"))
-        torch.save(value_outputs, os.path.join(args.save_outputs, "value_outputs.pt"))
+        torch.save(key_outputs, os.path.join(args.save_path, "key_outputs.pt"))
+        torch.save(value_outputs, os.path.join(args.save_path, "value_outputs.pt"))
 
     print("+"*10+"RemoveRope Model:"+"+"*10)
     for layer_idx, layer in enumerate(model.model.layers):
@@ -116,7 +120,8 @@ def main(args: argparse.Namespace) -> None:
     if args.ppl_eval_batch_size > 0:
         dataset_ppl = evaluate_ppl(model, tokenizer.pad_token_id, test_loader)
         print(f'Low rank approximate QKV ppl: {dataset_ppl:.4f}')
-        
+
+    model.save_pretrained(os.path.join(args.save_path, "absorbed_model"))
     
 if __name__ == "__main__":
     main(args)
