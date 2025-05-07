@@ -253,48 +253,55 @@ def evaluate_ppl(
 
     return ppl.item()
 
-def insert_kv_hooks(model):
+def insert_qkv_hooks(model):
+    query_hooks = []
     key_hooks = []
     value_hooks = []
+    query_outputs = {}
     key_outputs = {}
     value_outputs = {}
+
+    def query_hook_fn(module, input, output, index):
+        if index not in query_outputs:
+            query_outputs[index] = []
+        query_outputs[index].append(output.to('cpu'))
 
     def key_hook_fn(module, input, output, index):
         if index not in key_outputs:
             key_outputs[index] = []
-        key_outputs[index].append(output.to("cpu"))
+        key_outputs[index].append(output.to('cpu'))
         
     def value_hook_fn(module, input, output, index):
         if index not in value_outputs:
             value_outputs[index] = []
-        value_outputs[index].append(output.to("cpu"))
+        value_outputs[index].append(output.to('cpu'))
 
     for idx, layer in enumerate(model.model.layers):
+        query_hook = layer.self_attn.q_proj.register_forward_hook(lambda module, input, output, idx=idx: query_hook_fn(module, input, output, idx))
         key_hook = layer.self_attn.k_proj.register_forward_hook(lambda module, input, output, idx=idx: key_hook_fn(module, input, output, idx))
         value_hook = layer.self_attn.v_proj.register_forward_hook(lambda module, input, output, idx=idx: value_hook_fn(module, input, output, idx))
+        query_hooks.append(query_hook)
         key_hooks.append(key_hook)
         value_hooks.append(value_hook)
-    
-    return key_hooks, value_hooks, key_outputs, value_outputs
+
+    return query_hooks, key_hooks, value_hooks, query_outputs, key_outputs, value_outputs
 
 @torch.no_grad()
-def get_kv_calibrate_outputs(
+def get_qkv_calibrate_outputs(
     model: torch.nn.Module, trainloader: DataLoader[dict[str, torch.Tensor]]
 ) -> tuple[list[torch.Tensor], list[torch.Tensor]]:
     """
     Take the input signals ("activations") for a layer, run the layer forward.
-    Return the output of the layer (not layernormed) and the input to the MLP (pre-layernorm).
     """
 
     start_time = time.time()
 
     model.eval()
-    key_hooks, value_hooks, key_outputs, value_outputs = insert_kv_hooks(model)
+    query_hooks, key_hooks, value_hooks, query_outputs, key_outputs, value_outputs = insert_qkv_hooks(model)
     ignore_masks = []
-    logging.info("Evaluating perplexity...")
     for batch in tqdm(trainloader):
         batch = map_tensors(batch, model.model.embed_tokens.weight.device)
-        ignore_masks.append(batch["attention_mask"].to("cpu"))
+        ignore_masks.append(batch["attention_mask"].to('cpu'))
         model(**batch)
 
     elapsed = time.time() - start_time
@@ -303,13 +310,49 @@ def get_kv_calibrate_outputs(
         time.strftime("%H:%M:%S.{}".format(str(elapsed % 1)[2:])[:13], time.gmtime(elapsed)),
     )
 
+    for hook in query_hooks:
+        hook.remove()
     for hook in key_hooks:
         hook.remove()
     for hook in value_hooks:
         hook.remove()
-        
+
+    for value in query_outputs.values():
+        for idx, X_batch in enumerate(value):
+            if ignore_masks:
+                X_batch[ignore_masks[idx] == 0] = 0
+
     for value in key_outputs.values():
         for idx, X_batch in enumerate(value):
             if ignore_masks:
                 X_batch[ignore_masks[idx] == 0] = 0
-    return key_outputs, value_outputs
+
+    for value in value_outputs.values():
+        for idx, X_batch in enumerate(value):
+            if ignore_masks:
+                X_batch[ignore_masks[idx] == 0] = 0
+
+    qkv_outputs = {
+        "query": query_outputs,
+        "key": key_outputs,
+        "value": value_outputs,
+    }
+    return qkv_outputs
+
+@torch.no_grad()
+def pca_calc(X: list[torch.Tensor], device: str) -> torch.Tensor:
+    H = None
+    for idx, X_batch in enumerate(X):
+
+        X_batch = X_batch.double().to(device)
+        H_batch = torch.sum(X_batch.mT @ X_batch, dim=0)  # sum over the batch dimension.
+        H = H_batch if H is None else H + H_batch
+
+    damp = 0.01 * torch.mean(torch.diag(H))
+    diag = torch.arange(H.shape[-1]).to(device)
+    H[diag, diag] = H[diag, diag] + damp
+    X_eig = torch.linalg.eigh(H)
+    del H
+    index = torch.argsort(X_eig[0], descending=True)
+    eigen_vec = X_eig[1][:, index]
+    return eigen_vec
