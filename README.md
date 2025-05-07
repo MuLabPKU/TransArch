@@ -21,7 +21,7 @@ pip install ipykernel
 
 # Run
 ```
-python main.py --model-path meta-llama/Llama-2-7b-hf/ --ppl-eval-batch-size 8 --dim2head 4 --qk-mqa-dim 128 --q-lora-rank 512 --kv-lora-rank 896
+python main.py --model-path meta-llama/Llama-2-7b-hf --ppl-eval-batch-size 8 --dim2head 4 --qk-mqa-dim 128 --q-lora-rank 512 --kv-lora-rank 896
 ```
 
 # To-Do
