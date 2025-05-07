@@ -3,6 +3,7 @@ import torch.nn as nn
 import math
 from typing import Optional, Tuple
 import torch.nn.functional as F
+from .utils import pca_calc
 
 def rotate_half(x):
     x1 = x[..., : x.shape[-1] // 2]
@@ -26,10 +27,9 @@ def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
 
 class LoraQKV(nn.Module):
-    def __init__(self, self_attn, qk_mqa_dim=64, v_mqa_dim=64, q_lora_rank=2048, kv_lora_rank=896):
+    def __init__(self, self_attn, query_outputs=None, key_outputs=None, value_outputs=None, qk_mqa_dim=64, q_lora_rank=2048, kv_lora_rank=896):
         super().__init__()
         assert qk_mqa_dim == self_attn.head_dim
-        assert v_mqa_dim == qk_mqa_dim or v_mqa_dim == 0
         self.config = self_attn.config
         self.dtype = self_attn.q_proj.weight.dtype
         self.layer_idx = self_attn.layer_idx
@@ -37,7 +37,6 @@ class LoraQKV(nn.Module):
         self.num_key_value_heads = self_attn.num_key_value_heads
         self.head_dim = self_attn.head_dim
         self.qk_mqa_dim = qk_mqa_dim
-        self.v_mqa_dim = v_mqa_dim
         self.latent_dim = self_attn.latent_dim
         self.attention_dropout = self_attn.attention_dropout
         self.hidden_size = self_attn.hidden_size
@@ -50,16 +49,16 @@ class LoraQKV(nn.Module):
             device = self_attn.q_proj.weight.device,
             dtype = self.dtype,
         )
-        self.q_b_with_mqa_proj = nn.Linear(
+        self.q_b_proj = nn.Linear(
             q_lora_rank,
             self.num_attention_heads * (self.qk_mqa_dim + self.head_dim), 
             bias=self_attn.q_proj.bias is not None,
             device = self_attn.q_proj.weight.device,
             dtype = self.dtype,
         )
-        self.kv_a_with_mqa_proj = nn.Linear(
+        self.kv_a_proj_with_mqa = nn.Linear(
             self.hidden_size,
-            kv_lora_rank + qk_mqa_dim + v_mqa_dim,
+            kv_lora_rank + qk_mqa_dim,
             bias=self_attn.k_proj.bias is not None,
             device = self_attn.k_proj.weight.device,
             dtype = self.dtype,
@@ -71,25 +70,19 @@ class LoraQKV(nn.Module):
             device = self_attn.k_proj.weight.device,
             dtype = self.dtype,
         )
-        if v_mqa_dim >0:
-            self.v_b_rope_proj = nn.Linear(
-                v_mqa_dim,
-                self.num_attention_heads * self.head_dim,
-                bias=self_attn.v_up_proj.bias is not None,
-                device = self_attn.v_up_proj.weight.device,
-                dtype = self.dtype,
-            )
         self.o_proj = self_attn.o_proj
-        self.__init_deepseek__(self_attn)
+        kv_outputs = [torch.cat([key_outputs[i][:,:,qk_mqa_dim:], value_outputs[i]],dim=-1) for i in range(len(key_outputs))]
+        R_q = pca_calc(query_outputs, self_attn.q_proj.weight.device)
+        R_kv = pca_calc(kv_outputs, self_attn.k_proj.weight.device)
+        self.__init_deepseek__(self_attn, R_q, R_kv)
         
-    def __init_deepseek__(self, self_attn, niter=16):
+    def __init_deepseek__(self, self_attn, R_q, R_kv):
         # query svd
-        Uq,Sq,Vq = torch.svd_lowrank(self_attn.q_proj.weight.data.to(torch.float64), self.q_lora_rank, niter=niter)
-        q_a_weight = (torch.diag(torch.sqrt(Sq))@Vq.T).to(self.dtype)
-        q_b_weight = (Uq@torch.diag(torch.sqrt(Sq))).to(self.dtype)
+        q_a_weight = (R_q.T@self_attn.q_proj.weight.data.to(torch.float64))[:self.q_lora_rank].to(self.dtype)
+        q_b_weight = R_q[:,:self.q_lora_rank].to(self.dtype)
         q_b_weight = q_b_weight.view(self.num_attention_heads, self.head_dim, self.q_lora_rank)
         assert self.q_a_proj.weight.data.shape == q_a_weight.shape
-        self.q_a_proj.weight.data = q_a_weight
+        self.q_a_proj.weight.data = q_a_weight.contiguous()
         
         # key split mqa rope
         k_a_rope_weight, k_a_nope_weight = self_attn.k_proj.weight.data.split([self.qk_mqa_dim, self.latent_dim-self.qk_mqa_dim],dim=0)
@@ -98,34 +91,32 @@ class LoraQKV(nn.Module):
         
         # query split mqa rope
         q_b_rope_weight = torch.einsum("hdq,hdk->hkq", q_b_weight, k_b_rope_weight) 
-        q_b_with_mqa_weight = torch.cat([q_b_rope_weight, q_b_weight],dim=1).reshape(self.num_attention_heads*(self.qk_mqa_dim+self.head_dim), self.q_lora_rank)
-        assert self.q_b_with_mqa_proj.weight.data.shape == q_b_with_mqa_weight.shape
-        self.q_b_with_mqa_proj.weight.data = q_b_with_mqa_weight
+        q_b_with_mqa_weight = torch.cat([q_b_weight, q_b_rope_weight],dim=1).reshape(self.num_attention_heads*(self.head_dim+self.qk_mqa_dim), self.q_lora_rank)
+        assert self.q_b_proj.weight.data.shape == q_b_with_mqa_weight.shape
+        self.q_b_proj.weight.data = q_b_with_mqa_weight.contiguous() * math.sqrt(self.head_dim+self.q_lora_rank) / math.sqrt(self.head_dim)
         
         # value split mqa
-        v_a_rope_weight, v_a_nope_weight = self_attn.v_proj.weight.data.split([self.v_mqa_dim, self.latent_dim-self.v_mqa_dim],dim=0)
-        v_b_rope_weight, v_b_nope_weight = self_attn.v_up_proj.weight.data.split([self.v_mqa_dim, self.latent_dim-self.v_mqa_dim], dim=1)
-        if self.v_mqa_dim > 0:
-            assert self.v_b_rope_proj.weight.data.shape == v_b_rope_weight.shape
-            self.v_b_rope_proj.weight.data = v_b_rope_weight
+        v_a_nope_weight  = self_attn.v_proj.weight.data
+        v_b_nope_weight = self_attn.v_up_proj.weight.data
         
         # key & value svd 
         kv_a_nope_weight = torch.cat([k_a_nope_weight, v_a_nope_weight],dim=0).to(torch.float64)
+        k_b_nope_weight = k_b_nope_weight.view(self.num_attention_heads, self.head_dim, self.latent_dim-self.qk_mqa_dim)
+        v_b_nope_weight = v_b_nope_weight.view(self.num_attention_heads, self.head_dim, self.latent_dim)
         kv_b_nope_weight = torch.cat(
             [
-                torch.cat([k_b_nope_weight, torch.zeros_like(v_b_nope_weight)], dim=1),
-                torch.cat([torch.zeros_like(k_b_nope_weight), v_b_nope_weight],dim=1)
+                torch.cat([k_b_nope_weight, torch.zeros_like(v_b_nope_weight)], dim=-1),
+                torch.cat([torch.zeros_like(k_b_nope_weight), v_b_nope_weight],dim=-1)
             ], 
-            dim=0
-        ).to(torch.float64)
-        Ukv,Skv,Vkv = torch.svd_lowrank((kv_b_nope_weight@kv_a_nope_weight), self.kv_lora_rank, niter=niter)
-        kv_a_nope_weight = (torch.diag(torch.sqrt(Skv))@Vkv.T).to(self.dtype)
-        kv_b_nope_weight = (Ukv@torch.diag(torch.sqrt(Skv))).to(self.dtype)
+            dim=1
+        ).reshape(2*self.num_attention_heads*self.head_dim, 2*self.latent_dim-self.qk_mqa_dim).to(torch.float64)
+        kv_a_nope_weight = (R_kv.T@kv_a_nope_weight)[:self.kv_lora_rank].to(self.dtype)
+        kv_b_nope_weight = (kv_b_nope_weight@R_kv)[:,:self.kv_lora_rank].to(self.dtype)
         assert self.kv_b_proj.weight.data.shape == kv_b_nope_weight.shape
-        self.kv_b_proj.weight.data = kv_b_nope_weight
-        kv_a_proj_with_mqa_weight = torch.cat([k_a_rope_weight, v_a_rope_weight, kv_a_nope_weight],dim=0)
-        assert self.kv_a_with_mqa_proj.weight.data.shape == kv_a_proj_with_mqa_weight.shape
-        self.kv_a_with_mqa_proj.weight.data = kv_a_proj_with_mqa_weight
+        self.kv_b_proj.weight.data = kv_b_nope_weight.contiguous()
+        kv_a_proj_with_mqa_weight = torch.cat([kv_a_nope_weight, k_a_rope_weight],dim=0)
+        assert self.kv_a_proj_with_mqa.weight.data.shape == kv_a_proj_with_mqa_weight.shape
+        self.kv_a_proj_with_mqa.weight.data = kv_a_proj_with_mqa_weight.contiguous()
 
     def forward(
         self,
@@ -139,49 +130,30 @@ class LoraQKV(nn.Module):
         position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
         bsz, q_len, _ = hidden_states.size()
-        query_states = self.q_b_with_mqa_proj(self.q_a_proj(hidden_states))
-        query_states = query_states.view(bsz, q_len, self.num_attention_heads, self.qk_mqa_dim+self.head_dim).transpose(1,2)
-        q_rope, q_nope = query_states.split([self.qk_mqa_dim, self.head_dim], dim=-1)
-        k_rope, v_rope_kv_nope = self.kv_a_with_mqa_proj(hidden_states).split([self.qk_mqa_dim, self.v_mqa_dim+self.kv_lora_rank], dim=-1)
+        query_states = self.q_b_proj(self.q_a_proj(hidden_states))
+        query_states = query_states.view(bsz, q_len, self.num_attention_heads, self.head_dim+self.qk_mqa_dim).transpose(1,2)
+        q_nope, q_rope = query_states.split([self.head_dim, self.qk_mqa_dim], dim=-1)
+        compressed_kv = self.kv_a_proj_with_mqa(hidden_states)
+        kv_nope, k_rope = compressed_kv.split([self.kv_lora_rank, self.qk_mqa_dim], dim=-1)
         k_rope = k_rope.view(bsz, 1, q_len, self.qk_mqa_dim)
-        v_rope_kv_nope = v_rope_kv_nope.view(bsz, 1, q_len, self.v_mqa_dim+self.kv_lora_rank)
+        kv_nope = kv_nope.view(bsz, 1, q_len, self.kv_lora_rank)
         cos, sin = position_embeddings
         q_rope, k_rope = apply_rotary_pos_emb(q_rope, k_rope, cos, sin)
-        query_states = torch.cat([q_rope, q_nope], dim=-1)
-
-        if past_key_value is not None:
-            cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}  # Specific to RoPE models
-            k_rope, v_rope_kv_nope = past_key_value.update(k_rope, v_rope_kv_nope, self.layer_idx, cache_kwargs)
-
-            
-        v_rope, kv_nope = v_rope_kv_nope.split([self.v_mqa_dim, self.kv_lora_rank], dim=-1)
-        kv_nope = self.kv_b_proj(kv_nope)
-        k_nope, v_nope = kv_nope.split([self.hidden_size, self.hidden_size],dim=-1)
-        k_nope = k_nope.view(bsz, q_len, self.num_attention_heads, self.head_dim).transpose(1,2)
-        v_nope = v_nope.view(bsz, q_len, self.num_attention_heads, self.head_dim).transpose(1,2)
-
-        key_states = torch.cat([repeat_kv(k_rope, self.num_attention_heads), k_nope], dim=-1)
-        attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim)
-
+        query_states = torch.cat([q_nope, q_rope], dim=-1)
+        kv_nope = self.kv_b_proj(kv_nope).view(bsz, q_len, self.num_attention_heads, self.head_dim*2).transpose(1, 2)
+        k_nope, v_nope = kv_nope.split([self.head_dim, self.head_dim],dim=-1)
+        key_states = torch.cat([k_nope, repeat_kv(k_rope, self.num_attention_heads)], dim=-1)
+        attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim+self.q_lora_rank)
         if attention_mask is not None:  # no matter the length, we just slice it
             causal_mask = attention_mask[:, :, :, : key_states.shape[-2]]
             attn_weights = attn_weights + causal_mask
 
         attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
         attn_weights = nn.functional.dropout(attn_weights, p=self.attention_dropout, training=self.training)
-
         attn_nope_output = torch.matmul(attn_weights, v_nope)
         attn_nope_output = attn_nope_output.transpose(1, 2).contiguous()
         attn_nope_output = attn_nope_output.reshape(bsz, q_len, -1)
         attn_output = self.o_proj(attn_nope_output)
-
-        if self.v_mqa_dim > 0:
-            v_rope = self.v_b_rope_proj(v_rope)
-            v_rope = v_rope.reshape(bsz, -1, self.num_attention_heads, self.head_dim).transpose(1,2)
-            attn_rope_output = torch.matmul(attn_weights, v_rope)
-            attn_rope_output = attn_rope_output.transpose(1, 2).contiguous()
-            attn_rope_output = attn_rope_output.reshape(bsz, q_len, -1)
-            attn_output += self.o_proj(attn_rope_output)
 
         if not output_attentions:
             attn_weights = None
