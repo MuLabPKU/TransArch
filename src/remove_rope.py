@@ -28,7 +28,7 @@ def apply_rotary_pos_emb(q, k, cos, sin, rope_head=1):
     return q_embed, k_embed
 
 class RemoveRope(nn.Module):
-    def __init__(self, self_attn, X=None, Z=None, dim2head=None, rope_head=1):
+    def __init__(self, self_attn, key_outputs=None, dim2head=None, rope_head=1):
         super().__init__()
         self.config = self_attn.config
         self.layer_idx = self_attn.layer_idx
@@ -45,17 +45,10 @@ class RemoveRope(nn.Module):
         self.v_proj = self_attn.v_proj
         self.o_proj = self_attn.o_proj
         self.__insert_kv_up_proj__()
-        if Z is not None and dim2head is not None:
-            Rk = self.joint_complex_pca(Z, dim2head)
-        else:
-            Rk = self.svd_k_proj()
-        self.rotate_k_proj(Rk, dim2head=dim2head)
-        self.rotate_k_up_proj(Rk, dim2head=dim2head)
-        
-        if X is not None:
-            Rv = self.pca_calc(X)
-            self.rotate_v_proj(Rv)
-            self.rotate_v_up_proj(Rv)
+        if key_outputs is not None:
+            Rk = self.joint_complex_pca(key_outputs, dim2head)
+            self.rotate_k_proj(Rk, dim2head=dim2head)
+            self.rotate_k_up_proj(Rk, dim2head=dim2head)
             
     def __insert_kv_up_proj__(self):
         self.k_up_proj = nn.Linear(self.latent_dim, self.hidden_size, bias=False, dtype=self.k_proj.weight.dtype, device=self.k_proj.weight.device)
@@ -68,36 +61,6 @@ class RemoveRope(nn.Module):
         self.k_up_proj.weight.data = torch.stack([k_up_eye]*kv_groups,dim=1).reshape(self.hidden_size, self.latent_dim).contiguous()
         self.v_up_proj.weight.data = torch.stack([v_up_eye]*kv_groups,dim=1).reshape(self.hidden_size, self.latent_dim).contiguous()
 
-    def svd_k_proj(self):
-        k_weight = deepcopy(self.k_proj.weight.data)
-        dtype = k_weight.dtype
-        if self.k_proj.bias is not None:
-            k_bias = deepcopy(self.k_proj.bias.data)
-            k_weight = torch.cat([k_weight, k_bias.unsqueeze(1)], dim=1)
-        k_weight = k_weight.reshape(self.num_key_value_heads, self.head_dim, -1).transpose(0, 1)
-        U,_,_ = torch.linalg.svd(k_weight.to(torch.float32), full_matrices=False)
-        R = torch.einsum("dhc,dce->dhe", U[:self.head_dim//2], U[self.head_dim//2:])
-        return torch.cat([R, R]).to(dtype)
-    
-    @torch.no_grad()
-    def pca_calc(self, X: list[torch.Tensor]) -> torch.Tensor:
-        H = None
-        for idx, X_batch in enumerate(X):
-
-            X_batch = X_batch.double().to(device=self.v_proj.weight.device)
-            H_batch = torch.sum(X_batch.mT @ X_batch, dim=0)  # sum over the batch dimension.
-            H = H_batch if H is None else H + H_batch
-
-        damp = 0.01 * torch.mean(torch.diag(H))
-        diag = torch.arange(H.shape[-1]).to(device=self.v_proj.weight.device)
-        H[diag, diag] = H[diag, diag] + damp
-        X_eig = torch.linalg.eigh(H)
-        del H
-        index = torch.argsort(X_eig[0], descending=True)
-        eigen_vec = X_eig[1][:, index]
-        return eigen_vec
-
-    
     @torch.no_grad()
     def joint_complex_pca(self, Z: list[torch.Tensor], dim2head: int = 1) -> torch.Tensor:
         dtype = self.k_proj.weight.dtype
@@ -150,30 +113,7 @@ class RemoveRope(nn.Module):
         k_up_weight = k_up_weight.permute(0, 1, 3, 2).reshape(self.hidden_size, self.latent_dim)
         assert self.k_up_proj.weight.data.shape == (self.hidden_size, self.latent_dim)
         self.k_up_proj.weight.data = k_up_weight.contiguous()
-        
-    def rotate_v_proj(self, U):
-        v_weight = deepcopy(self.v_proj.weight.data)
-        U = U.to(v_weight.dtype).to(v_weight.device)
-        if self.v_proj.bias is not None:
-            v_bias = deepcopy(self.v_proj.bias.data)
-            v_weight = torch.cat([v_weight, v_bias.unsqueeze(1)], dim=1)
-        v_weight = torch.einsum("dc,dD->cD", U, v_weight)
-        if self.v_proj.bias is not None:
-            k_bias = v_weight[:, -1]
-            v_weight = v_weight[:, :-1]
-            assert self.v_proj.bias.data.shape == self.hidden_size
-            self.v_proj.bias.data = k_bias.contiguous()
-        assert self.v_proj.weight.data.shape == (self.latent_dim, self.hidden_size)
-        self.v_proj.weight.data = v_weight.reshape(self.latent_dim, self.hidden_size).contiguous()
-             
-    def rotate_v_up_proj(self, U):
-        v_up_weight = deepcopy(self.v_up_proj.weight.data)
-        U = U.to(v_up_weight.dtype).to(v_up_weight.device)
-        v_up_weight = v_up_weight.reshape(self.hidden_size, self.latent_dim)
-        v_up_weight = torch.einsum("dc,Dd->Dc", U, v_up_weight)
-        assert self.v_up_proj.weight.data.shape == (self.hidden_size, self.latent_dim)
-        self.v_up_proj.weight.data = v_up_weight.contiguous()
-        
+  
     def forward(
         self,
         hidden_states: torch.Tensor,
