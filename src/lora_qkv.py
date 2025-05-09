@@ -27,7 +27,7 @@ def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
 
 class LoraQKV(nn.Module):
-    def __init__(self, self_attn, query_outputs=None, key_outputs=None, value_outputs=None, qk_mqa_dim=64, q_lora_rank=2048, kv_lora_rank=896):
+    def __init__(self, self_attn, query_outputs=None, key_outputs=None, value_outputs=None, qk_mqa_dim=64, q_lora_rank=2048, kv_lora_rank=896, balance_kv_ratio=None):
         super().__init__()
         assert qk_mqa_dim == self_attn.head_dim
         self.config = self_attn.config
@@ -71,7 +71,16 @@ class LoraQKV(nn.Module):
             dtype = self.dtype,
         )
         self.o_proj = self_attn.o_proj
-        kv_outputs = [torch.cat([key_outputs[i][:,:,qk_mqa_dim:], value_outputs[i]],dim=-1) for i in range(len(key_outputs))]
+        if balance_kv_ratio is not None:
+            k_outputs_norm = torch.cat([key.reshape(-1, self.latent_dim)[:,self.qk_mqa_dim:] for key in key_outputs]).norm(p=2,dim=0).mean()
+            v_outputs_norm = torch.cat([value.reshape(-1, self.latent_dim)[:,self.qk_mqa_dim:] for value in value_outputs]).norm(p=2,dim=0).mean()
+            ratio = k_outputs_norm/(v_outputs_norm * balance_kv_ratio)
+            self_attn.k_proj.weight.data[self.qk_mqa_dim:] = self_attn.k_proj.weight.data[self.qk_mqa_dim:] / ratio
+            self_attn.k_up_proj.weight.data[:, self.qk_mqa_dim:] = self_attn.k_up_proj.weight.data[:, self.qk_mqa_dim:] * ratio
+        else:
+            ratio = 1
+        
+        kv_outputs = [torch.cat([key_outputs[i][:,:,qk_mqa_dim:] / ratio, value_outputs[i]],dim=-1) for i in range(len(key_outputs))]
         R_q = pca_calc(query_outputs, self_attn.q_proj.weight.device)
         R_kv = pca_calc(kv_outputs, self_attn.k_proj.weight.device)
         self.__init_deepseek__(self_attn, R_q, R_kv)
