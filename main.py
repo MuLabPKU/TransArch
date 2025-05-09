@@ -17,12 +17,13 @@ parser.add_argument("--cal-batch-size", type=int, default=8, help="Batch size fo
 parser.add_argument("--cal-max-seqlen", type=int, default=256, help="Maximum sequence length for the calibration data.")
 parser.add_argument("--varied-seqlen", action="store_true", help="Varied sequence lengths in the calibration data.")
 parser.add_argument("--seed", type=int, default=42, help="Seed for sampling the calibration data.")
-parser.add_argument("--ppl-eval-batch-size", type=int, default=1, help="Batch size for evaluating the perplexity.")
+parser.add_argument("--ppl-eval-batch-size", type=int, default=8, help="Batch size for evaluating the perplexity.")
 parser.add_argument("--dim2head", type=int, default=4, help="")
 parser.add_argument("--rope-head", type=int, default=1, help="")
 parser.add_argument("--qk-mqa-dim", type=int, default=64, help="")
 parser.add_argument("--q-lora-rank", type=int, default=2048, help="")
 parser.add_argument("--kv-lora-rank", type=int, default=960, help="")
+parser.add_argument("--balance-kv-ratio", type=float, help="")
 args = parser.parse_args()
 
 def main(args: argparse.Namespace) -> None:
@@ -103,7 +104,8 @@ def main(args: argparse.Namespace) -> None:
             rm_rope_qkv_outputs["value"][layer_idx], 
             qk_mqa_dim=args.qk_mqa_dim, 
             q_lora_rank=args.q_lora_rank, 
-            kv_lora_rank=args.kv_lora_rank
+            kv_lora_rank=args.kv_lora_rank,
+            balance_kv_ratio=args.balance_kv_ratio,
         ))
 
     print(model)
@@ -111,8 +113,8 @@ def main(args: argparse.Namespace) -> None:
     if args.ppl_eval_batch_size > 0:
         dataset_ppl = evaluate_ppl(model, tokenizer.pad_token_id, test_loader)
         print(f'Low rank approximate QKV ppl: {dataset_ppl:.4f}')
-    model.save_pretrained(os.path.join(args.save_path, "deepseek_model"))
-    tokenizer.save_pretrained(os.path.join(args.save_path, "deepseek_model"))
+    model.save_pretrained(os.path.join(args.save_path))
+    tokenizer.save_pretrained(os.path.join(args.save_path))
     
 if __name__ == "__main__":
     main(args)
