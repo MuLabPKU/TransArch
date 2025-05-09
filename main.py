@@ -2,7 +2,7 @@ import argparse
 import os
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
-from src.utils import get_dataset, prepare_dataloader, prepare_test_dataloader, evaluate_ppl, get_qkv_calibrate_outputs
+from src.utils import get_dataset, prepare_dataloader, prepare_test_dataloader, evaluate_ppl, get_qkv_calibrate_outputs, statistics_qkv_rmsnorm
 from src.remove_rope import RemoveRope
 from src.lora_qkv import LoraQKV
 
@@ -24,6 +24,7 @@ parser.add_argument("--qk-mqa-dim", type=int, default=64, help="")
 parser.add_argument("--q-lora-rank", type=int, default=2048, help="")
 parser.add_argument("--kv-lora-rank", type=int, default=960, help="")
 parser.add_argument("--balance-kv-ratio", type=float, help="")
+parser.add_argument("--use-qkv-norm", action='store_true', default=False, help="")
 args = parser.parse_args()
 
 def main(args: argparse.Namespace) -> None:
@@ -105,9 +106,21 @@ def main(args: argparse.Namespace) -> None:
             qk_mqa_dim=args.qk_mqa_dim, 
             q_lora_rank=args.q_lora_rank, 
             kv_lora_rank=args.kv_lora_rank,
+            use_qkv_norm=args.use_qkv_norm,
             balance_kv_ratio=args.balance_kv_ratio,
         ))
+    
+    if args.use_qkv_norm:
+        if os.path.exists(os.path.join(args.save_path, "lora_qkv_outputs.pt")):
+            print(f"load calculate feature from {args.save_path}")
+            lora_qkv_outputs = torch.load(os.path.join(args.save_path, "lora_qkv_outputs.pt"), "cpu")
+        else:
+            print(f"generate calculate feature")
+            lora_qkv_outputs = get_qkv_calibrate_outputs(model, train_loader)
+            torch.save(lora_qkv_outputs, os.path.join(args.save_path, "lora_qkv_outputs.pt"))
 
+        for layer_idx, layer in enumerate(model.model.layers):
+            statistics_qkv_rmsnorm(layer.self_attn, lora_qkv_outputs["q_a_proj"][layer_idx], lora_qkv_outputs["kv_a_proj"][layer_idx])
     print(model)
 
     if args.ppl_eval_batch_size > 0:
