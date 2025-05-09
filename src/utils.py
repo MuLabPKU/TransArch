@@ -257,9 +257,13 @@ def insert_qkv_hooks(model):
     query_hooks = []
     key_hooks = []
     value_hooks = []
+    q_a_proj_hooks = []
+    kv_a_proj_with_mqa_hooks = []
     query_outputs = {}
     key_outputs = {}
     value_outputs = {}
+    q_a_proj_outputs = {}
+    kv_a_proj_with_mqa_outputs = {}
 
     def query_hook_fn(module, input, output, index):
         if index not in query_outputs:
@@ -276,15 +280,34 @@ def insert_qkv_hooks(model):
             value_outputs[index] = []
         value_outputs[index].append(output.to('cpu'))
 
-    for idx, layer in enumerate(model.model.layers):
-        query_hook = layer.self_attn.q_proj.register_forward_hook(lambda module, input, output, idx=idx: query_hook_fn(module, input, output, idx))
-        key_hook = layer.self_attn.k_proj.register_forward_hook(lambda module, input, output, idx=idx: key_hook_fn(module, input, output, idx))
-        value_hook = layer.self_attn.v_proj.register_forward_hook(lambda module, input, output, idx=idx: value_hook_fn(module, input, output, idx))
-        query_hooks.append(query_hook)
-        key_hooks.append(key_hook)
-        value_hooks.append(value_hook)
+    def q_a_proj_hook_fn(module, input, output, index):
+        if index not in q_a_proj_outputs:
+            q_a_proj_outputs[index] = []
+        q_a_proj_outputs[index].append(output.to('cpu'))
 
-    return query_hooks, key_hooks, value_hooks, query_outputs, key_outputs, value_outputs
+    def kv_a_proj_with_mqa_hook_fn(module, input, output, index):
+        if index not in kv_a_proj_with_mqa_outputs:
+            kv_a_proj_with_mqa_outputs[index] = []
+        kv_a_proj_with_mqa_outputs[index].append(output.to('cpu'))
+
+    for idx, layer in enumerate(model.model.layers):
+        if hasattr(layer.self_attn, "q_proj"):
+            query_hook = layer.self_attn.q_proj.register_forward_hook(lambda module, input, output, idx=idx: query_hook_fn(module, input, output, idx))
+            query_hooks.append(query_hook)
+        if hasattr(layer.self_attn, "k_proj"):
+            key_hook = layer.self_attn.k_proj.register_forward_hook(lambda module, input, output, idx=idx: key_hook_fn(module, input, output, idx))
+            key_hooks.append(key_hook)
+        if hasattr(layer.self_attn, "v_proj"):
+            value_hook = layer.self_attn.v_proj.register_forward_hook(lambda module, input, output, idx=idx: value_hook_fn(module, input, output, idx))
+            value_hooks.append(value_hook)
+        if hasattr(layer.self_attn, "q_a_proj"):
+            q_a_proj_hook = layer.self_attn.q_a_proj.register_forward_hook(lambda module, input, output, idx=idx: q_a_proj_hook_fn(module, input, output, idx))
+            q_a_proj_hooks.append(q_a_proj_hook)
+        if hasattr(layer.self_attn, "kv_a_proj_with_mqa"):
+            kv_a_proj_with_mqa_hook = layer.self_attn.kv_a_proj_with_mqa.register_forward_hook(lambda module, input, output, idx=idx: kv_a_proj_with_mqa_hook_fn(module, input, output, idx))
+            kv_a_proj_with_mqa_hooks.append(kv_a_proj_with_mqa_hook)
+    
+    return query_hooks, key_hooks, value_hooks, q_a_proj_hooks, kv_a_proj_with_mqa_hooks, query_outputs, key_outputs, value_outputs, q_a_proj_outputs, kv_a_proj_with_mqa_outputs
 
 @torch.no_grad()
 def get_qkv_calibrate_outputs(
@@ -297,8 +320,9 @@ def get_qkv_calibrate_outputs(
     start_time = time.time()
 
     model.eval()
-    query_hooks, key_hooks, value_hooks, query_outputs, key_outputs, value_outputs = insert_qkv_hooks(model)
+    query_hooks, key_hooks, value_hooks, q_a_proj_hooks, kv_a_proj_with_mqa_hooks, query_outputs, key_outputs, value_outputs, q_a_proj_outputs, kv_a_proj_with_mqa_outputs = insert_qkv_hooks(model)
     ignore_masks = []
+    logging.info("Training perplexity...")
     for batch in tqdm(trainloader):
         batch = map_tensors(batch, model.model.embed_tokens.weight.device)
         ignore_masks.append(batch["attention_mask"].to('cpu'))
@@ -316,6 +340,10 @@ def get_qkv_calibrate_outputs(
         hook.remove()
     for hook in value_hooks:
         hook.remove()
+    for hook in q_a_proj_hooks:
+        hook.remove()
+    for hook in kv_a_proj_with_mqa_hooks:
+        hook.remove()
 
     for value in query_outputs.values():
         for idx, X_batch in enumerate(value):
@@ -332,10 +360,22 @@ def get_qkv_calibrate_outputs(
             if ignore_masks:
                 X_batch[ignore_masks[idx] == 0] = 0
 
+    for value in q_a_proj_outputs.values():
+        for idx, X_batch in enumerate(value):
+            if ignore_masks:
+                X_batch[ignore_masks[idx] == 0] = 0
+
+    for value in kv_a_proj_with_mqa_outputs.values():
+        for idx, X_batch in enumerate(value):
+            if ignore_masks:
+                X_batch[ignore_masks[idx] == 0] = 0
+
     qkv_outputs = {
         "query": query_outputs,
         "key": key_outputs,
         "value": value_outputs,
+        "q_a_proj": q_a_proj_outputs,
+        "kv_a_proj": kv_a_proj_with_mqa_outputs,
     }
     return qkv_outputs
 
@@ -356,3 +396,14 @@ def pca_calc(X: list[torch.Tensor], device: str) -> torch.Tensor:
     index = torch.argsort(X_eig[0], descending=True)
     eigen_vec = X_eig[1][:, index]
     return eigen_vec
+
+def statistics_qkv_rmsnorm(self_attn, q_a_outputs, kv_a_outputs):
+    self_attn.q_a_layernorm.weight.data.to(self_attn.q_a_proj.weight.device).to(self_attn.dtype)
+    q_a_proj = torch.cat(q_a_outputs)
+    q_a_rmsnorm = torch.rsqrt(q_a_proj.pow(2).mean(-1) + self_attn.q_a_layernorm.eps).mean()
+    self_attn.q_a_layernorm.weight.data = torch.full_like(self_attn.q_a_layernorm.weight.data, q_a_rmsnorm)
+
+    self_attn.kv_a_layernorm.weight.data.to(self_attn.kv_a_proj_with_mqa.weight.device).to(self_attn.dtype)
+    kv_a_proj = torch.cat(kv_a_outputs)
+    kv_a_rmsnorm = torch.rsqrt(kv_a_proj.pow(2).mean(-1) + self_attn.kv_a_layernorm.eps).mean()
+    self_attn.kv_a_layernorm.weight.data = torch.full_like(self_attn.kv_a_layernorm.weight.data, kv_a_rmsnorm)
