@@ -21,7 +21,7 @@ parser.add_argument("--ppl-eval-batch-size", type=int, default=8, help="Batch si
 parser.add_argument("--dim2head", type=int, default=4, help="")
 parser.add_argument("--rope-head", type=int, default=1, help="")
 parser.add_argument("--qk-mqa-dim", type=int, default=64, help="")
-parser.add_argument("--q-lora-rank", type=int, default=2048, help="")
+parser.add_argument("--q-lora-rank", type=int, help="")
 parser.add_argument("--kv-lora-rank", type=int, default=960, help="")
 parser.add_argument("--balance-kv-ratio", type=float, help="")
 parser.add_argument("--use-qkv-norm", action='store_true', default=False, help="")
@@ -52,19 +52,9 @@ def main(args: argparse.Namespace) -> None:
         seed=args.seed,
     )
 
-    if not os.path.exists(args.save_path):
-        os.makedirs(args.save_path)
-
-    if os.path.exists(os.path.join(args.save_path, "ori_qkv_outputs.pt")):
-        print(f"load calculate feature from {args.save_path}")
-        ori_qkv_outputs = torch.load(os.path.join(args.save_path, "ori_qkv_outputs.pt"), "cpu")
-    else:
-        print(f"generate calculate feature")
-        ori_qkv_outputs = get_qkv_calibrate_outputs(model, train_loader)
-        torch.save(ori_qkv_outputs, os.path.join(args.save_path, "ori_qkv_outputs.pt"))
+    ori_qkv_outputs = get_qkv_calibrate_outputs(model, train_loader)
 
     print("+"*10+"Original Model:"+"+"*10)
-    print(model)
     dataset_ppl = 0
     if args.ppl_eval_batch_size > 0:
         test_loader = prepare_test_dataloader(
@@ -82,15 +72,7 @@ def main(args: argparse.Namespace) -> None:
             rope_head=args.rope_head,
         ))
         
-    if os.path.exists(os.path.join(args.save_path, "rm_rope_qkv_outputs.pt")):
-        print(f"load calculate feature from {args.save_path}")
-        rm_rope_qkv_outputs = torch.load(os.path.join(args.save_path, "rm_rope_qkv_outputs.pt"), "cpu")
-    else:
-        print(f"generate calculate feature")
-        rm_rope_qkv_outputs = get_qkv_calibrate_outputs(model, train_loader)
-        torch.save(rm_rope_qkv_outputs, os.path.join(args.save_path, "rm_rope_qkv_outputs.pt"))
-
-    print(model)
+    rm_rope_qkv_outputs = get_qkv_calibrate_outputs(model, train_loader)
     if args.ppl_eval_batch_size > 0:
         dataset_ppl = evaluate_ppl(model, tokenizer.pad_token_id, test_loader)
         print(f'Remove RoPE ppl: {dataset_ppl:.4f}')
@@ -103,22 +85,15 @@ def main(args: argparse.Namespace) -> None:
             rm_rope_qkv_outputs["query"][layer_idx], 
             rm_rope_qkv_outputs["key"][layer_idx], 
             rm_rope_qkv_outputs["value"][layer_idx], 
-            qk_mqa_dim=args.qk_mqa_dim, 
             q_lora_rank=args.q_lora_rank, 
+            qk_mqa_dim=args.qk_mqa_dim, 
             kv_lora_rank=args.kv_lora_rank,
             use_qkv_norm=args.use_qkv_norm,
             balance_kv_ratio=args.balance_kv_ratio,
         ))
     
     if args.use_qkv_norm:
-        if os.path.exists(os.path.join(args.save_path, "lora_qkv_outputs.pt")):
-            print(f"load calculate feature from {args.save_path}")
-            lora_qkv_outputs = torch.load(os.path.join(args.save_path, "lora_qkv_outputs.pt"), "cpu")
-        else:
-            print(f"generate calculate feature")
-            lora_qkv_outputs = get_qkv_calibrate_outputs(model, train_loader)
-            torch.save(lora_qkv_outputs, os.path.join(args.save_path, "lora_qkv_outputs.pt"))
-
+        lora_qkv_outputs = get_qkv_calibrate_outputs(model, train_loader)
         for layer_idx, layer in enumerate(model.model.layers):
             statistics_qkv_rmsnorm(layer.self_attn, lora_qkv_outputs["q_a_proj"][layer_idx], lora_qkv_outputs["kv_a_proj"][layer_idx])
     print(model)
