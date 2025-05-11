@@ -27,7 +27,7 @@ def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
 
 class LoraQKV(nn.Module):
-    def __init__(self, self_attn, query_outputs=None, key_outputs=None, value_outputs=None, qk_mqa_dim=64, q_lora_rank=2048, kv_lora_rank=896, use_qkv_norm=None, balance_kv_ratio=None):
+    def __init__(self, self_attn, query_outputs=None, key_outputs=None, value_outputs=None, q_lora_rank=None, qk_mqa_dim=64, kv_lora_rank=896, use_qkv_norm=None, balance_kv_ratio=None):
         super().__init__()
         assert qk_mqa_dim == self_attn.head_dim
         self.config = self_attn.config
@@ -42,22 +42,32 @@ class LoraQKV(nn.Module):
         self.hidden_size = self_attn.hidden_size
         self.q_lora_rank = q_lora_rank
         self.kv_lora_rank = kv_lora_rank
-        self.q_a_proj = nn.Linear(
-            self.hidden_size, 
-            q_lora_rank, 
-            bias=self_attn.q_proj.bias is not None,
-            device = self_attn.q_proj.weight.device,
-            dtype = self.dtype,
-        )
-        if use_qkv_norm:
-            self.q_a_layernorm = nn.RMSNorm(q_lora_rank, device=self_attn.q_proj.weight.device, dtype=self.dtype, eps=1e-6)
-        self.q_b_proj = nn.Linear(
-            q_lora_rank,
-            self.num_attention_heads * (self.qk_mqa_dim + self.head_dim), 
-            bias=self_attn.q_proj.bias is not None,
-            device = self_attn.q_proj.weight.device,
-            dtype = self.dtype,
-        )
+        if q_lora_rank is not None:
+            self.q_a_proj = nn.Linear(
+                self.hidden_size, 
+                q_lora_rank, 
+                bias=self_attn.q_proj.bias is not None,
+                device = self_attn.q_proj.weight.device,
+                dtype = self.dtype,
+            )
+            if use_qkv_norm:
+                self.q_a_layernorm = nn.RMSNorm(q_lora_rank, device=self_attn.q_proj.weight.device, dtype=self.dtype, eps=1e-6)
+            self.q_b_proj = nn.Linear(
+                q_lora_rank,
+                self.num_attention_heads * (self.qk_mqa_dim + self.head_dim), 
+                bias=self_attn.q_proj.bias is not None,
+                device = self_attn.q_proj.weight.device,
+                dtype = self.dtype,
+            )
+        else:
+            self.q_proj = nn.Linear(
+                self.hidden_size, 
+                self.num_attention_heads * (self.qk_mqa_dim + self.head_dim), 
+                bias=self_attn.q_proj.bias is not None,
+                device = self_attn.q_proj.weight.device,
+                dtype = self.dtype,
+            )
+
         self.kv_a_proj_with_mqa = nn.Linear(
             self.hidden_size,
             kv_lora_rank + qk_mqa_dim,
@@ -85,29 +95,40 @@ class LoraQKV(nn.Module):
             ratio = 1
         
         kv_outputs = [torch.cat([key_outputs[i][:,:,qk_mqa_dim:] / ratio, value_outputs[i]],dim=-1) for i in range(len(key_outputs))]
-        R_q = pca_calc(query_outputs, self_attn.q_proj.weight.device)
+        if self.q_lora_rank is None:
+            R_q = pca_calc(query_outputs, self_attn.q_proj.weight.device)
+        else:
+            R_q = None
         R_kv = pca_calc(kv_outputs, self_attn.k_proj.weight.device)
         self.__init_deepseek__(self_attn, R_q, R_kv)
         
     def __init_deepseek__(self, self_attn, R_q, R_kv):
-        # query svd
-        q_a_weight = (R_q.T@self_attn.q_proj.weight.data.to(torch.float64))[:self.q_lora_rank].to(self.dtype)
-        q_b_weight = R_q[:,:self.q_lora_rank].to(self.dtype)
-        q_b_weight = q_b_weight.view(self.num_attention_heads, self.head_dim, self.q_lora_rank)
-        assert self.q_a_proj.weight.data.shape == q_a_weight.shape
-        self.q_a_proj.weight.data = q_a_weight.contiguous()
+        if self.q_lora_rank is not None:
+            # query svd
+            q_a_weight = (R_q.T@self_attn.q_proj.weight.data.to(torch.float64))[:self.q_lora_rank].to(self.dtype)
+            q_b_weight = R_q[:,:self.q_lora_rank].to(self.dtype)
+            q_b_weight = q_b_weight.view(self.num_attention_heads, self.head_dim, self.q_lora_rank)
+            assert self.q_a_proj.weight.data.shape == q_a_weight.shape
+            self.q_a_proj.weight.data = q_a_weight.contiguous()
         
         # key split mqa rope
         k_a_rope_weight, k_a_nope_weight = self_attn.k_proj.weight.data.split([self.qk_mqa_dim, self.latent_dim-self.qk_mqa_dim],dim=0)
         k_b_rope_weight, k_b_nope_weight = self_attn.k_up_proj.weight.data.split([self.qk_mqa_dim, self.latent_dim-self.qk_mqa_dim], dim=1)
         k_b_rope_weight = k_b_rope_weight.view(self.num_attention_heads, self.head_dim, self.qk_mqa_dim)
         
-        # query split mqa rope
-        q_b_rope_weight = torch.einsum("hdq,hdk->hkq", q_b_weight, k_b_rope_weight) 
-        q_b_with_mqa_weight = torch.cat([q_b_weight, q_b_rope_weight],dim=1).reshape(self.num_attention_heads*(self.head_dim+self.qk_mqa_dim), self.q_lora_rank)
-        assert self.q_b_proj.weight.data.shape == q_b_with_mqa_weight.shape
-        self.q_b_proj.weight.data = q_b_with_mqa_weight.contiguous() * math.sqrt(self.head_dim+self.q_lora_rank) / math.sqrt(self.head_dim)
-        
+        if self.q_lora_rank is not None:
+            # query split mqa rope
+            q_b_rope_weight = torch.einsum("hdq,hdk->hkq", q_b_weight, k_b_rope_weight) 
+            q_b_with_mqa_weight = torch.cat([q_b_weight, q_b_rope_weight],dim=1).reshape(self.num_attention_heads*(self.head_dim+self.qk_mqa_dim), self.q_lora_rank)
+            assert self.q_b_proj.weight.data.shape == q_b_with_mqa_weight.shape
+            self.q_b_proj.weight.data = q_b_with_mqa_weight.contiguous() * math.sqrt(self.head_dim+self.qk_mqa_dim) / math.sqrt(self.head_dim)
+        else:
+            q_weight = self_attn.q_proj.weight.data.view(self.num_attention_heads, self.head_dim, self.hidden_size)
+            q_rope_weight = torch.einsum("hdD,hdk->hkD", q_weight, k_b_rope_weight) 
+            q_with_mqa_weight = torch.cat([q_weight, q_rope_weight],dim=1).reshape(self.num_attention_heads*(self.head_dim+self.qk_mqa_dim), self.hidden_size)
+            assert self.q_proj.weight.data.shape == q_with_mqa_weight.shape
+            self.q_proj.weight.data = q_with_mqa_weight.contiguous() * math.sqrt(self.head_dim+self.qk_mqa_dim) / math.sqrt(self.head_dim)
+            
         # value split mqa
         v_a_nope_weight  = self_attn.v_proj.weight.data
         v_b_nope_weight = self_attn.v_up_proj.weight.data
@@ -143,10 +164,14 @@ class LoraQKV(nn.Module):
         position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
         bsz, q_len, _ = hidden_states.size()
-        query_states = self.q_a_proj(hidden_states)
-        if hasattr(self, "q_a_layernorm"):
-            query_states = self.q_a_layernorm(query_states)
-        query_states = self.q_b_proj(query_states)
+        if self.q_lora_rank is not None:
+            query_states = self.q_a_proj(hidden_states)
+            if hasattr(self, "q_a_layernorm"):
+                query_states = self.q_a_layernorm(query_states)
+            query_states = self.q_b_proj(query_states)
+        else:
+            query_states = self.q_proj(hidden_states)
+        
         query_states = query_states.view(bsz, q_len, self.num_attention_heads, self.head_dim+self.qk_mqa_dim).transpose(1,2)
         q_nope, q_rope = query_states.split([self.head_dim, self.qk_mqa_dim], dim=-1)
         compressed_kv = self.kv_a_proj_with_mqa(hidden_states)
@@ -161,7 +186,7 @@ class LoraQKV(nn.Module):
         kv_nope = self.kv_b_proj(kv_nope).view(bsz, q_len, self.num_attention_heads, self.head_dim*2).transpose(1, 2)
         k_nope, v_nope = kv_nope.split([self.head_dim, self.head_dim],dim=-1)
         key_states = torch.cat([k_nope, repeat_kv(k_rope, self.num_attention_heads)], dim=-1)
-        attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim+self.q_lora_rank)
+        attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim+self.qk_mqa_dim)
         if attention_mask is not None:  # no matter the length, we just slice it
             causal_mask = attention_mask[:, :, :, : key_states.shape[-2]]
             attn_weights = attn_weights + causal_mask
