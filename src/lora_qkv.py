@@ -95,7 +95,7 @@ class LoraQKV(nn.Module):
             ratio = 1
         
         kv_outputs = [torch.cat([key_outputs[i][:,:,qk_mqa_dim:] / ratio, value_outputs[i]],dim=-1) for i in range(len(key_outputs))]
-        if self.q_lora_rank is None:
+        if self.q_lora_rank is not None:
             R_q = pca_calc(query_outputs, self_attn.q_proj.weight.device)
         else:
             R_q = None
