@@ -27,7 +27,19 @@ def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
 
 class LoraQKV(nn.Module):
-    def __init__(self, self_attn, query_outputs=None, key_outputs=None, value_outputs=None, q_lora_rank=None, qk_mqa_dim=64, kv_lora_rank=896, use_qkv_norm=None, balance_kv_ratio=None):
+    def __init__(
+        self, 
+        self_attn, 
+        query_outputs=None, 
+        key_outputs=None, 
+        value_outputs=None, 
+        q_lora_rank=None, 
+        qk_mqa_dim=64, 
+        kv_lora_rank=896,
+        use_qkv_norm=None, 
+        balance_kv_ratio=None, 
+        rms_norm_eps=1e-6,
+    ):
         super().__init__()
         assert qk_mqa_dim == self_attn.head_dim
         self.config = self_attn.config
@@ -51,7 +63,7 @@ class LoraQKV(nn.Module):
                 dtype = self.dtype,
             )
             if use_qkv_norm:
-                self.q_a_layernorm = nn.RMSNorm(q_lora_rank, device=self_attn.q_proj.weight.device, dtype=self.dtype, eps=1e-6)
+                self.q_a_layernorm = nn.RMSNorm(q_lora_rank, device=self_attn.q_proj.weight.device, dtype=self.dtype, eps=rms_norm_eps)
             self.q_b_proj = nn.Linear(
                 q_lora_rank,
                 self.num_attention_heads * (self.qk_mqa_dim + self.head_dim), 
@@ -76,7 +88,7 @@ class LoraQKV(nn.Module):
             dtype = self.dtype,
         )
         if use_qkv_norm:
-            self.kv_a_layernorm = nn.RMSNorm(kv_lora_rank, device=self_attn.k_proj.weight.device, dtype=self.dtype, eps=1e-6)
+            self.kv_a_layernorm = nn.RMSNorm(kv_lora_rank, device=self_attn.k_proj.weight.device, dtype=self.dtype, eps=rms_norm_eps)
         self.kv_b_proj = nn.Linear(
             kv_lora_rank,
             self.num_attention_heads * self.head_dim * 2,
