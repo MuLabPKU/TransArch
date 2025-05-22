@@ -398,10 +398,11 @@ def pca_calc(X: list[torch.Tensor], device: str) -> torch.Tensor:
     return eigen_vec
 
 def statistics_qkv_rmsnorm(self_attn, q_a_outputs, kv_a_outputs):
-    self_attn.q_a_layernorm.weight.data.to(self_attn.q_a_proj.weight.device).to(self_attn.dtype)
-    q_a_proj = torch.cat(q_a_outputs)
-    q_a_rmsnorm = torch.rsqrt(q_a_proj.pow(2).mean(-1) + self_attn.q_a_layernorm.eps).mean()
-    self_attn.q_a_layernorm.weight.data = torch.full_like(self_attn.q_a_layernorm.weight.data, q_a_rmsnorm)
+    if q_a_outputs is not None:
+        self_attn.q_a_layernorm.weight.data.to(self_attn.q_a_proj.weight.device).to(self_attn.dtype)
+        q_a_proj = torch.cat(q_a_outputs)
+        q_a_rmsnorm = torch.rsqrt(q_a_proj.pow(2).mean(-1) + self_attn.q_a_layernorm.eps).mean()
+        self_attn.q_a_layernorm.weight.data = torch.full_like(self_attn.q_a_layernorm.weight.data, q_a_rmsnorm)
 
     self_attn.kv_a_layernorm.weight.data.to(self_attn.kv_a_proj_with_mqa.weight.device).to(self_attn.dtype)
     kv_a_proj = torch.cat(kv_a_outputs)
