@@ -60,7 +60,7 @@ def main(args: argparse.Namespace) -> None:
         test_loader = prepare_test_dataloader(
             dataset=dataset["test"], tokenizer=tokenizer, batch_size=args.ppl_eval_batch_size
         )
-        dataset_ppl = evaluate_ppl(model, tokenizer.pad_token_id, test_loader)
+        #dataset_ppl = evaluate_ppl(model, tokenizer.pad_token_id, test_loader)
         print(f'Original ppl: {dataset_ppl:.4f}')
 
     print("+"*10+"RemoveRope Model:"+"+"*10)
@@ -74,13 +74,13 @@ def main(args: argparse.Namespace) -> None:
         
     rm_rope_qkv_outputs = get_qkv_calibrate_outputs(model, train_loader)
     if args.ppl_eval_batch_size > 0:
-        dataset_ppl = evaluate_ppl(model, tokenizer.pad_token_id, test_loader)
+        #dataset_ppl = evaluate_ppl(model, tokenizer.pad_token_id, test_loader)
         print(f'Remove RoPE ppl: {dataset_ppl:.4f}')
 
     print("+"*10+"LoraQKV Model:"+"+"*10)
     for layer_idx, layer in enumerate(model.model.layers):
         assert args.rope_head == 1
-        setattr(layer, "self_attn",LoraQKV(
+        setattr(layer, "self_attn", LoraQKV(
             layer.self_attn, 
             rm_rope_qkv_outputs["query"][layer_idx], 
             rm_rope_qkv_outputs["key"][layer_idx], 
@@ -90,12 +90,17 @@ def main(args: argparse.Namespace) -> None:
             kv_lora_rank=args.kv_lora_rank,
             use_qkv_norm=args.use_qkv_norm,
             balance_kv_ratio=args.balance_kv_ratio,
+            rms_norm_eps=model.config.rms_norm_eps,
         ))
     
     if args.use_qkv_norm:
         lora_qkv_outputs = get_qkv_calibrate_outputs(model, train_loader)
         for layer_idx, layer in enumerate(model.model.layers):
-            statistics_qkv_rmsnorm(layer.self_attn, lora_qkv_outputs["q_a_proj"][layer_idx], lora_qkv_outputs["kv_a_proj"][layer_idx])
+            statistics_qkv_rmsnorm(
+                layer.self_attn, 
+                lora_qkv_outputs["q_a_proj"][layer_idx] if len(lora_qkv_outputs["q_a_proj"])>layer_idx else None, 
+                lora_qkv_outputs["kv_a_proj"][layer_idx]
+            )
     print(model)
 
     if args.ppl_eval_batch_size > 0:
