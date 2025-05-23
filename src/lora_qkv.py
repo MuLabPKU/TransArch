@@ -35,13 +35,14 @@ class LoraQKV(nn.Module):
         value_outputs=None, 
         q_lora_rank=None, 
         qk_mqa_dim=64, 
+        collapse=1,
         kv_lora_rank=896,
         use_qkv_norm=None, 
         balance_kv_ratio=None, 
         rms_norm_eps=1e-6,
     ):
         super().__init__()
-        assert qk_mqa_dim == self_attn.head_dim
+        assert qk_mqa_dim*collapse == self_attn.head_dim
         self.config = self_attn.config
         self.dtype = self_attn.q_proj.weight.dtype
         self.layer_idx = self_attn.layer_idx
@@ -49,6 +50,7 @@ class LoraQKV(nn.Module):
         self.num_key_value_heads = self_attn.num_key_value_heads
         self.head_dim = self_attn.head_dim
         self.qk_mqa_dim = qk_mqa_dim
+        self.collapse = collapse
         self.latent_dim = self_attn.latent_dim
         self.attention_dropout = self_attn.attention_dropout
         self.hidden_size = self_attn.hidden_size
@@ -191,7 +193,7 @@ class LoraQKV(nn.Module):
         k_rope = k_rope.view(bsz, 1, q_len, self.qk_mqa_dim)
         kv_nope = kv_nope.view(bsz, 1, q_len, self.kv_lora_rank)
         cos, sin = position_embeddings
-        q_rope, k_rope = apply_rotary_pos_emb(q_rope, k_rope, cos, sin)
+        q_rope, k_rope = apply_rotary_pos_emb(q_rope, k_rope, cos[:,:,::self.collapse], sin[:,:,::self.collapse])
         query_states = torch.cat([q_nope, q_rope], dim=-1)
         if hasattr(self, "kv_a_layernorm"):
             kv_nope = self.kv_a_layernorm(kv_nope)
