@@ -22,15 +22,15 @@ pip install ipykernel
 
 # Run
 ```
-python main.py --model-path meta-llama/Llama-2-7b-hf --ppl-eval-batch-size 8 --dim2head 4 --qk-mqa-dim 128 --q-lora-rank 512 --kv-lora-rank 896
+python main.py
 ```
 
 # To-Do
 - [ ] Publish the technical report for the new version, detailing how TransMLA is compatible with RoPE, supports the Absorb operation.
 - [x] Compress the dimensions of the KV cache to improve inference speed.
 - [ ] Release checkpoint.
-- [ ] Add support for vLLM to improve inference speed.
-- [ ] Support FlashMLA.
+- [x] Add support for vLLM to improve inference speed.
+- [x] Support FlashMLA.
 - [ ] Extend support to additional models (e.g., LLaMA, Mistral, Gemma2, etc.).
 - [ ] Fine-tune on R1 distillation datasets.
 
