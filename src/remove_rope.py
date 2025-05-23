@@ -28,7 +28,7 @@ def apply_rotary_pos_emb(q, k, cos, sin, rope_head=1):
     return q_embed, k_embed
 
 class RemoveRope(nn.Module):
-    def __init__(self, self_attn, key_outputs=None, dim2head=None, rope_head=1):
+    def __init__(self, self_attn, key_outputs=None, dim2head=None, rope_head=1, collapse=1):
         super().__init__()
         self.config = self_attn.config
         self.layer_idx = self_attn.layer_idx
@@ -39,6 +39,7 @@ class RemoveRope(nn.Module):
         self.latent_dim = self.num_key_value_heads * self.head_dim
         self.attention_dropout = self_attn.attention_dropout
         self.rope_head = rope_head
+        self.collapse = collapse
 
         self.q_proj = self_attn.q_proj
         self.k_proj = self_attn.k_proj
@@ -69,8 +70,8 @@ class RemoveRope(nn.Module):
             H = None
             for Z_batch in Z:
                 b,n,d = Z_batch.shape
-                head_batch = deepcopy(Z_batch).view(b,n, self.num_key_value_heads, 2, self.head_dim//2//dim2head, dim2head)
-                head_batch = head_batch.permute(0, 1, 3, 2, 5, 4)
+                head_batch = deepcopy(Z_batch).view(b,n, self.num_key_value_heads, 2, self.head_dim//2//dim2head, dim2head//self.collapse, self.collapse)
+                head_batch = head_batch.permute(0, 1, 3, 6, 2, 5, 4)
                 head_batch = head_batch.reshape(b,n*2, self.num_key_value_heads*dim2head, self.head_dim//2//dim2head)
                 head_batch_i = head_batch[:,:,:,i].double().to(self.k_proj.weight.device)
                 head_batch_i = torch.sum(head_batch_i.mT @ head_batch_i, dim=0)  # sum over the batch dimension.
@@ -83,18 +84,18 @@ class RemoveRope(nn.Module):
             index = torch.argsort(X_eig[0], descending=True)
             eigen_vecs.append(X_eig[1][:, index])
         return torch.stack(eigen_vecs+eigen_vecs).to(dtype)
-    
+
     def rotate_k_proj(self, U, dim2head=1):
         k_weight = deepcopy(self.k_proj.weight.data)
         U = U.to(k_weight.dtype).to(k_weight.device)
         if self.k_proj.bias is not None:
             k_bias = deepcopy(self.k_proj.bias.data)
             k_weight = torch.cat([k_weight, k_bias.unsqueeze(1)], dim=1)
-        k_weight = k_weight.reshape(self.num_key_value_heads, self.head_dim//dim2head, dim2head, -1)
-        k_weight = k_weight.permute(0, 2, 1, 3).reshape(self.num_key_value_heads*dim2head, self.head_dim//dim2head, -1)
+        k_weight = k_weight.reshape(self.num_key_value_heads, self.head_dim//dim2head, dim2head//self.collapse, self.collapse, -1)
+        k_weight = k_weight.permute(3, 0, 2, 1, 4).reshape(self.num_key_value_heads*dim2head, self.head_dim//dim2head, -1)
         k_weight = torch.einsum("dhc,hdD->cdD", U, k_weight)
-        k_weight = k_weight.reshape(self.num_key_value_heads, dim2head, self.head_dim//dim2head, -1)
-        k_weight = k_weight.permute(0, 2, 1, 3).reshape(self.num_key_value_heads, self.head_dim, -1)
+        k_weight = k_weight.reshape(self.collapse, self.num_key_value_heads, dim2head//self.collapse, self.head_dim//dim2head, -1)
+        k_weight = k_weight.permute(0, 1, 3, 2, 4).reshape(self.num_key_value_heads, self.head_dim, -1)
         if self.k_proj.bias is not None:
             k_bias = k_weight[:, :, -1]
             k_weight = k_weight[:, :, :-1]
@@ -106,11 +107,11 @@ class RemoveRope(nn.Module):
     def rotate_k_up_proj(self, U, dim2head=1):
         k_up_weight = deepcopy(self.k_up_proj.weight.data)
         U = U.to(k_up_weight.dtype).to(k_up_weight.device)
-        k_up_weight = k_up_weight.reshape(self.hidden_size, self.num_key_value_heads, self.head_dim//dim2head, dim2head)
-        k_up_weight = k_up_weight.permute(0, 1, 3, 2).reshape(self.hidden_size, self.num_key_value_heads*dim2head, self.head_dim//dim2head)
+        k_up_weight = k_up_weight.reshape(self.hidden_size, self.num_key_value_heads, self.head_dim//dim2head, dim2head//self.collapse, self.collapse)
+        k_up_weight = k_up_weight.permute(0, 4, 1, 3, 2).reshape(self.hidden_size, self.num_key_value_heads*dim2head, self.head_dim//dim2head)
         k_up_weight = torch.einsum("dhc,Dhd->Dcd", U, k_up_weight)
-        k_up_weight = k_up_weight.reshape(self.hidden_size, self.num_key_value_heads, dim2head, self.head_dim//dim2head)
-        k_up_weight = k_up_weight.permute(0, 1, 3, 2).reshape(self.hidden_size, self.latent_dim)
+        k_up_weight = k_up_weight.reshape(self.hidden_size, self.collapse, self.num_key_value_heads, dim2head//self.collapse, self.head_dim//dim2head)
+        k_up_weight = k_up_weight.permute(0, 1, 2, 4, 3).reshape(self.hidden_size, self.latent_dim)
         assert self.k_up_proj.weight.data.shape == (self.hidden_size, self.latent_dim)
         self.k_up_proj.weight.data = k_up_weight.contiguous()
   
@@ -139,7 +140,7 @@ class RemoveRope(nn.Module):
         value_states = value_states.view(bsz, 1, q_len, self.latent_dim)
 
         cos, sin = position_embeddings
-        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, self.rope_head)
+        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos[:,:,::self.collapse], sin[:,:,::self.collapse], self.rope_head)
         
         if past_key_value is not None:
             cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}  # Specific to RoPE models
