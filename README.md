@@ -18,6 +18,8 @@ pip install vllm==0.8.4
 pip install datasets
 pip install accelerate==1.3.0
 pip install ipykernel
+pip install datatrove
+pip install tensorboardX
 ```
 
 # Run
