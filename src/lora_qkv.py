@@ -125,10 +125,27 @@ class LoraQKV(nn.Module):
 
         # -----------------apply pca on the query and key/value outputs-----------------
         if self.q_lora_rank is not None:
-            R_q = pca_calc(query_outputs, self_attn.q_proj.weight.device)
+            if self.q_bias:
+                # If q_bias is not None, we need to remove the bias from the query_outputs, 
+                # because the bias part does not need pca.
+                R_q = pca_calc(
+                    [x.to(dtype=self.dtype, device=self_attn.q_proj.bias.device) - self_attn.q_proj.bias.data for x in query_outputs], 
+                    self_attn.q_proj.weight.device
+                )
+            else:
+                R_q = pca_calc(query_outputs, self_attn.q_proj.weight.device)
         else:
             R_q = None
-        R_kv = pca_calc(kv_outputs, self_attn.k_proj.weight.device)
+        if self.k_bias:
+            # If k_bias is not None, we need to remove the bias from the kv_outputs, 
+            # because the bias part does not need pca.
+            kv_bias = torch.cat([self_attn.k_proj.bias.data[qk_mqa_dim:] / ratio, self_attn.v_proj.bias.data])
+            R_kv = pca_calc(
+                [x.to(dtype=self.dtype, device=kv_bias.device) - kv_bias for x in kv_outputs], 
+                self_attn.k_proj.weight.device
+            )
+        else:
+            R_kv = pca_calc(kv_outputs, self_attn.k_proj.weight.device)
 
         # -----------------initialize the weights / bias-----------------
         self._init_weights(self_attn, R_q, R_kv)
