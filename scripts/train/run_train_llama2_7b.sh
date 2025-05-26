@@ -4,7 +4,7 @@ DATA_PATH="/data2/mengfanxu/nanotron/datasets/100m"
 
 # batch size = per_device_train_batch_size * gradient_accumulation_steps * num_gpus = 128
 deepspeed --master_port=16971 --include=localhost:0,1,2,3,4,5,6,7 train.py \
-    --deepspeed scripts/ds_config_zero3.json \
+    --deepspeed configs/ds_config_zero3.json \
     --model_name_or_path $BASE_MODEL \
     --bf16 \
     --data_path $DATA_PATH \

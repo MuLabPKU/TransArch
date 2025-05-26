@@ -199,7 +199,7 @@ class LoraQKV(nn.Module):
                 q_b_rope_bias = torch.einsum("hd,hdk->hk", q_b_bias, k_b_rope_weight)
                 q_b_with_mqa_bias = torch.cat([q_b_bias, q_b_rope_bias], dim=1).flatten()
                 assert self.q_b_proj.bias.data.shape == q_b_with_mqa_bias.shape
-                self.q_b_proj.bias.data = q_b_with_mqa_bias.contiguous() * math.sqrt(self.head_dim+self.qk_mqa_dim) / math.sqrt(self.head_dim)
+                self.q_b_proj.bias.data = q_b_with_mqa_bias.contiguous() * math.sqrt(self.head_dim + self.qk_mqa_dim) / math.sqrt(self.head_dim)
         else:
             q_weight = self_attn.q_proj.weight.data.view(self.num_attention_heads, self.head_dim, self.hidden_size)
             q_rope_weight = torch.einsum("hdD,hdk->hkD", q_weight, k_b_rope_weight) 
@@ -207,14 +207,14 @@ class LoraQKV(nn.Module):
                 self.num_attention_heads * (self.head_dim + self.qk_mqa_dim), self.hidden_size
             )
             assert self.q_proj.weight.data.shape == q_with_mqa_weight.shape
-            self.q_proj.weight.data = q_with_mqa_weight.contiguous() * math.sqrt(self.head_dim+self.qk_mqa_dim) / math.sqrt(self.head_dim)
+            self.q_proj.weight.data = q_with_mqa_weight.contiguous() * math.sqrt(self.head_dim + self.qk_mqa_dim) / math.sqrt(self.head_dim)
 
             if self.q_bias:
                 q_bias = q_bias.reshape(self.num_attention_heads, self.head_dim)
                 q_rope_bias = torch.einsum("hd,hdk->hk", q_bias.to(torch.float64), k_b_rope_weight.to(torch.float64)).to(self.dtype)
                 q_bias = torch.cat([q_bias, q_rope_bias], dim=1).flatten()
                 assert self.q_proj.bias.data.shape == q_bias.shape
-                self.q_proj.bias.data = q_bias.contiguous() * math.sqrt(self.head_dim+self.qk_mqa_dim) / math.sqrt(self.head_dim)
+                self.q_proj.bias.data = q_bias.contiguous() * math.sqrt(self.head_dim + self.qk_mqa_dim) / math.sqrt(self.head_dim)
             
         
         # 2. Low-rank decomposing k_proj and v_proj
@@ -264,6 +264,8 @@ class LoraQKV(nn.Module):
         position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
         bsz, q_len, _ = hidden_states.size()
+
+        # query
         if self.q_lora_rank is not None:
             query_states = self.q_a_proj(hidden_states)
             if hasattr(self, "q_a_layernorm"):
@@ -272,12 +274,15 @@ class LoraQKV(nn.Module):
         else:
             query_states = self.q_proj(hidden_states)
         
-        query_states = query_states.view(bsz, q_len, self.num_attention_heads, self.head_dim+self.qk_mqa_dim).transpose(1,2)
+        query_states = query_states.view(bsz, q_len, self.num_attention_heads, -1).transpose(1,2)
         q_nope, q_rope = query_states.split([self.head_dim, self.qk_mqa_dim], dim=-1)
+
+        # key and value
         compressed_kv = self.kv_a_proj_with_mqa(hidden_states)
         kv_nope, k_rope = compressed_kv.split([self.kv_lora_rank, self.qk_mqa_dim], dim=-1)
-        k_rope = k_rope.view(bsz, 1, q_len, self.qk_mqa_dim)
         kv_nope = kv_nope.view(bsz, 1, q_len, self.kv_lora_rank)
+        k_rope = k_rope.view(bsz, 1, q_len, self.qk_mqa_dim)
+
         cos, sin = position_embeddings
         q_rope, k_rope = apply_rotary_pos_emb(q_rope, k_rope, cos[:,:,::self.collapse], sin[:,:,::self.collapse])
         query_states = torch.cat([q_nope, q_rope], dim=-1)
@@ -286,7 +291,8 @@ class LoraQKV(nn.Module):
         kv_nope = self.kv_b_proj(kv_nope).view(bsz, q_len, self.num_attention_heads, self.head_dim * 2).transpose(1, 2)
         k_nope, v_nope = kv_nope.split([self.head_dim, self.head_dim],dim=-1)
         key_states = torch.cat([k_nope, repeat_kv(k_rope, self.num_attention_heads)], dim=-1)
-        attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim+self.qk_mqa_dim)
+
+        attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim + self.qk_mqa_dim)
         if attention_mask is not None:  # no matter the length, we just slice it
             causal_mask = attention_mask[:, :, :, : key_states.shape[-2]]
             attn_weights = attn_weights + causal_mask

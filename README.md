@@ -23,9 +23,19 @@ pip install tensorboardX
 ```
 
 # Run
-```
-python main.py
-```
+
+1. Convert MHA / GQA models (e.g. Llama2-7B) into DeepSeek-MLA:
+    ```bash
+    bash scripts/convert/qwen2.5-7B-Instruct.sh
+    ```
+2. Have fun playing with the converted models!
+    ```python
+    # using `Transformers.AutoModelForCausalLM`
+    import torch
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    model = AutoModelForCausalLM.from_pretrained("outputs/qwen2.5-7B-Instruct-deepseek", torch_dtype=torch.bfloat16, device_map="cuda", _attn_implementation="flash_attention_2", trust_remote_code=True)
+    ```
 
 # To-Do
 - [ ] Publish the technical report for the new version, detailing how TransMLA is compatible with RoPE, supports the Absorb operation.
