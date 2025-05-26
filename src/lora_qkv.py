@@ -64,7 +64,6 @@ class LoraQKV(nn.Module):
         self.k_bias = self_attn.k_proj.bias is not None
         self.v_bias = self_attn.v_proj.bias is not None
         assert self.k_bias == self.v_bias
-        assert not self.k_bias or self.qk_mqa_dim == self.head_dim
 
         # -----------------module definitions-----------------
         # q_a_proj & q_b_proj
@@ -181,7 +180,6 @@ class LoraQKV(nn.Module):
             if self.q_bias:
                 q_b_bias = q_bias.reshape(self.num_attention_heads, self.head_dim)
                 q_b_rope_bias = torch.einsum("hd,hdk->hk", q_b_bias, k_b_rope_weight)
-                # q_b_rope_bias = torch.einsum("hd,hdk->hk", q_b_bias.to(torch.float64), k_b_rope_weight.to(torch.float64)).to(self.dtype)
                 q_b_with_mqa_bias = torch.cat([q_b_bias, q_b_rope_bias], dim=1).flatten()
                 assert self.q_b_proj.bias.data.shape == q_b_with_mqa_bias.shape
                 self.q_b_proj.bias.data = q_b_with_mqa_bias.contiguous() * math.sqrt(self.head_dim+self.qk_mqa_dim) / math.sqrt(self.head_dim)

@@ -18,7 +18,7 @@ parser.add_argument("--cal-max-seqlen", type=int, default=256, help="Maximum seq
 parser.add_argument("--varied-seqlen", action="store_true", help="Varied sequence lengths in the calibration data.")
 parser.add_argument("--seed", type=int, default=42, help="Seed for sampling the calibration data.")
 parser.add_argument("--ppl-eval-batch-size", type=int, default=8, help="Batch size for evaluating the perplexity.")
-parser.add_argument("--dim2head", type=int, default=8, help="")
+parser.add_argument("--freqfold", type=int, default=8, help="")
 parser.add_argument("--rope-head", type=int, default=1, help="")
 parser.add_argument("--qk-mqa-dim", type=int, default=64, help="")
 parser.add_argument("--collapse", type=int, default=2, help="")
@@ -29,6 +29,7 @@ parser.add_argument("--use-qkv-norm", action='store_true', default=False, help="
 args = parser.parse_args()
 
 def main(args: argparse.Namespace) -> None:
+    # get model, tokenizer and dataset
     model = AutoModelForCausalLM.from_pretrained(
         args.model_path,
         torch_dtype = torch.float16 if args.dtype == "fp16" else torch.bfloat16 if args.dtype == "bf16" else torch.float32,
@@ -53,8 +54,7 @@ def main(args: argparse.Namespace) -> None:
         seed=args.seed,
     )
 
-    ori_qkv_outputs = get_qkv_calibrate_outputs(model, train_loader)
-
+    # evaluate original model
     print("+"*10+"Original Model:"+"+"*10)
     dataset_ppl = 0
     if args.ppl_eval_batch_size > 0:
@@ -64,21 +64,25 @@ def main(args: argparse.Namespace) -> None:
         dataset_ppl = evaluate_ppl(model, tokenizer.pad_token_id, test_loader)
         print(f'Original ppl: {dataset_ppl:.4f}')
 
+    # remove rope
+    print("getting original model's qkv outputs...")
+    ori_qkv_outputs = get_qkv_calibrate_outputs(model, train_loader)
     print("+"*10+"RemoveRope Model:"+"+"*10)
     for layer_idx, layer in enumerate(model.model.layers):
         setattr(layer, "self_attn", RemoveRope(
             layer.self_attn, 
             ori_qkv_outputs["key"][layer_idx], 
-            dim2head=args.dim2head, 
+            freqfold=args.freqfold, 
             rope_head=args.rope_head,
             collapse=args.collapse,
         ))
-        
-    rm_rope_qkv_outputs = get_qkv_calibrate_outputs(model, train_loader)
     if args.ppl_eval_batch_size > 0:
         dataset_ppl = evaluate_ppl(model, tokenizer.pad_token_id, test_loader)
         print(f'Remove RoPE ppl: {dataset_ppl:.4f}')
 
+    # convert to deepseek-mla
+    print("getting rope-removed model's qkv outputs...")
+    rm_rope_qkv_outputs = get_qkv_calibrate_outputs(model, train_loader)
     print("+"*10+"LoraQKV Model:"+"+"*10)
     for layer_idx, layer in enumerate(model.model.layers):
         assert args.rope_head == 1
