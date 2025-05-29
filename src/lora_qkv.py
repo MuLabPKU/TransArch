@@ -3,6 +3,7 @@ import torch.nn as nn
 import math
 from typing import Optional, Tuple
 import torch.nn.functional as F
+from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
 from .utils import pca_calc
 
 def rotate_half(x):
@@ -58,6 +59,9 @@ class LoraQKV(nn.Module):
         self.q_lora_rank = q_lora_rank
         self.kv_lora_rank = kv_lora_rank
         assert self.kv_lora_rank <= 2 * self.latent_dim - self.qk_mqa_dim, f"kv_lora_rank ({self.kv_lora_rank}) must be less than 2 * latent_dim ({self.latent_dim}) - qk_mqa_dim ({self.qk_mqa_dim})"
+
+        self.attention_function = ALL_ATTENTION_FUNCTIONS["sdpa"]
+        self.scaling = (self.head_dim + self.qk_mqa_dim)**(-0.5)
 
         # -----------------Attributes for the bias-----------------
         self.q_bias = self_attn.q_proj.bias is not None
@@ -180,6 +184,7 @@ class LoraQKV(nn.Module):
             self.q_a_proj.weight.data = q_a_weight.contiguous()
 
         # 1.2 Initialize q_b_proj
+        scaling = math.sqrt(self.head_dim + self.qk_mqa_dim) / math.sqrt(self.head_dim)
         if self.q_lora_rank is not None:
             # Absorb the rope part of k_b_proj into q_b_proj
             q_b_rope_weight = torch.einsum("hdq,hdk->hkq", q_b_weight, k_b_rope_weight)
@@ -191,7 +196,7 @@ class LoraQKV(nn.Module):
             # In the original GQA, attention scores are divided by sqrt(head_dim).
             # However, in the transformed MLA, the attention scores are divided by sqrt(head_dim + qk_mqa_dim).
             assert self.q_b_proj.weight.data.shape == q_b_with_mqa_weight.shape
-            self.q_b_proj.weight.data = q_b_with_mqa_weight.contiguous() * math.sqrt(self.head_dim + self.qk_mqa_dim) / math.sqrt(self.head_dim)
+            self.q_b_proj.weight.data = q_b_with_mqa_weight.contiguous() * scaling
             
             # Considering the bias
             if self.q_bias:
@@ -199,7 +204,7 @@ class LoraQKV(nn.Module):
                 q_b_rope_bias = torch.einsum("hd,hdk->hk", q_b_bias, k_b_rope_weight)
                 q_b_with_mqa_bias = torch.cat([q_b_bias, q_b_rope_bias], dim=1).flatten()
                 assert self.q_b_proj.bias.data.shape == q_b_with_mqa_bias.shape
-                self.q_b_proj.bias.data = q_b_with_mqa_bias.contiguous() * math.sqrt(self.head_dim + self.qk_mqa_dim) / math.sqrt(self.head_dim)
+                self.q_b_proj.bias.data = q_b_with_mqa_bias.contiguous() * scaling
         else:
             q_weight = self_attn.q_proj.weight.data.view(self.num_attention_heads, self.head_dim, self.hidden_size)
             q_rope_weight = torch.einsum("hdD,hdk->hkD", q_weight, k_b_rope_weight) 
@@ -207,14 +212,14 @@ class LoraQKV(nn.Module):
                 self.num_attention_heads * (self.head_dim + self.qk_mqa_dim), self.hidden_size
             )
             assert self.q_proj.weight.data.shape == q_with_mqa_weight.shape
-            self.q_proj.weight.data = q_with_mqa_weight.contiguous() * math.sqrt(self.head_dim + self.qk_mqa_dim) / math.sqrt(self.head_dim)
+            self.q_proj.weight.data = q_with_mqa_weight.contiguous() * scaling
 
             if self.q_bias:
                 q_bias = q_bias.reshape(self.num_attention_heads, self.head_dim)
                 q_rope_bias = torch.einsum("hd,hdk->hk", q_bias.to(torch.float64), k_b_rope_weight.to(torch.float64)).to(self.dtype)
                 q_bias = torch.cat([q_bias, q_rope_bias], dim=1).flatten()
                 assert self.q_proj.bias.data.shape == q_bias.shape
-                self.q_proj.bias.data = q_bias.contiguous() * math.sqrt(self.head_dim + self.qk_mqa_dim) / math.sqrt(self.head_dim)
+                self.q_proj.bias.data = q_bias.contiguous() * scaling
             
         
         # 2. Low-rank decomposing k_proj and v_proj
@@ -284,27 +289,26 @@ class LoraQKV(nn.Module):
         k_rope = k_rope.view(bsz, 1, q_len, self.qk_mqa_dim)
 
         cos, sin = position_embeddings
-        q_rope, k_rope = apply_rotary_pos_emb(q_rope, k_rope, cos[:,:,::self.collapse], sin[:,:,::self.collapse])
+        q_rope, k_rope = apply_rotary_pos_emb(q_rope, k_rope, cos[ :, :, : : self.collapse], sin[ :, :, : : self.collapse])
         query_states = torch.cat([q_nope, q_rope], dim=-1)
+
         if hasattr(self, "kv_a_layernorm"):
             kv_nope = self.kv_a_layernorm(kv_nope)
         kv_nope = self.kv_b_proj(kv_nope).view(bsz, q_len, self.num_attention_heads, self.head_dim * 2).transpose(1, 2)
-        k_nope, v_nope = kv_nope.split([self.head_dim, self.head_dim],dim=-1)
+        k_nope, value_states = kv_nope.split([self.head_dim, self.head_dim],dim=-1)
         key_states = torch.cat([k_nope, repeat_kv(k_rope, self.num_attention_heads)], dim=-1)
 
-        attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim + self.qk_mqa_dim)
-        if attention_mask is not None:  # no matter the length, we just slice it
-            causal_mask = attention_mask[:, :, :, : key_states.shape[-2]]
-            attn_weights = attn_weights + causal_mask
+        attn_output, attn_weights = self.attention_function(
+            self,
+            query_states,
+            key_states,
+            value_states,
+            attention_mask,
+            dropout=0.0 if not self.training else self.attention_dropout,
+            scaling=self.scaling,
+        )
 
-        attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
-        attn_weights = nn.functional.dropout(attn_weights, p=self.attention_dropout, training=self.training)
-        attn_nope_output = torch.matmul(attn_weights, v_nope)
-        attn_nope_output = attn_nope_output.transpose(1, 2).contiguous()
-        attn_nope_output = attn_nope_output.reshape(bsz, q_len, -1)
-        attn_output = self.o_proj(attn_nope_output)
-
-        if not output_attentions:
-            attn_weights = None
+        attn_output = attn_output.reshape(bsz, q_len, -1).contiguous()
+        attn_output = self.o_proj(attn_output)
 
         return attn_output, attn_weights

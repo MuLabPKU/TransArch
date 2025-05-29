@@ -126,9 +126,7 @@ def main(args: argparse.Namespace) -> None:
 def modify_config(model, config_path: str) -> None:
     with open(config_path, "r") as f:
         config = json.load(f)
-    
-    config["attention_bias"] = model.model.layers[0].self_attn.q_proj.bias is not None
-    config["mlp_bias"] = model.model.layers[0].mlp.gate_proj.bias is not None
+        
     config["auto_map"] = {
         "AutoConfig": "configuration_deepseek_v3.DeepseekV3Config",
         "AutoModel": "modeling_deepseek_v3.DeepseekV3Model",
@@ -136,6 +134,9 @@ def modify_config(model, config_path: str) -> None:
     }
     config["architectures"] = ["DeepseekV3ForCausalLM"]
     config["model_type"] = "deepseek_v3"
+    
+    config["attention_bias"] = model.model.layers[0].self_attn.q_proj.bias is not None
+    config["mlp_bias"] = model.model.layers[0].mlp.gate_proj.bias is not None
     config["first_k_dense_replace"] = config["num_hidden_layers"]
 
     config["qk_rope_head_dim"] = config["head_dim"] = args.qk_mqa_dim

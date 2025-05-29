@@ -3,32 +3,35 @@ import torch.nn as nn
 import math
 from copy import deepcopy
 from typing import Optional, Tuple
+from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
 
 def rotate_half(x, group):
-    rotate_x =[]
-    dh=x.shape[-1]//group
+    rotate_x = []
+    dh = x.shape[-1] // group
     for i in range(group):
-        rotate_x.append(-x[..., i*dh + dh//2 : (i+1)*dh])
-        rotate_x.append(x[..., i*dh: i*dh + dh//2])
+        rotate_x.append(-x[..., i * dh + dh // 2 : (i + 1) * dh])
+        rotate_x.append(x[..., i * dh : i * dh + dh // 2])
     return torch.cat(rotate_x, dim=-1)
 
 def apply_rotary_pos_emb(q, k, cos, sin, rope_head=1):
-    rope_dim = cos.shape[-1]*rope_head
-    nope_dim = q.shape[-1]-rope_dim
+    rope_dim = cos.shape[-1] * rope_head
+    nope_dim = q.shape[-1] - rope_dim
     q_rope, q_nope = q.split([rope_dim, nope_dim], dim=-1)
     k_rope, k_nope = k.split([rope_dim, nope_dim], dim=-1)
+
     cos = cos.unsqueeze(1)
     sin = sin.unsqueeze(1)
-    rope_repeat = q_rope.shape[-1]//cos.shape[-1]
-    q_rope_embed = (q_rope * cos.repeat(1,1,1,rope_repeat)) + (rotate_half(q_rope, rope_repeat) * sin.repeat(1,1,1,rope_repeat))
-    rope_repeat = k_rope.shape[-1]//cos.shape[-1]
-    k_rope_embed = (k_rope * cos.repeat(1,1,1,rope_repeat)) + (rotate_half(k_rope, rope_repeat) * sin.repeat(1,1,1,rope_repeat))
+    rope_repeat = q_rope.shape[-1] // cos.shape[-1]
+    q_rope_embed = q_rope * cos.repeat(1,1,1,rope_repeat) + rotate_half(q_rope, rope_repeat) * sin.repeat(1,1,1,rope_repeat)
+    rope_repeat = k_rope.shape[-1] // cos.shape[-1]
+    k_rope_embed = k_rope * cos.repeat(1,1,1,rope_repeat) + rotate_half(k_rope, rope_repeat) * sin.repeat(1,1,1,rope_repeat)
+
     q_embed = torch.cat([q_rope_embed, q_nope], dim=-1)
     k_embed = torch.cat([k_rope_embed, k_nope], dim=-1)
     return q_embed, k_embed
 
 class RemoveRope(nn.Module):
-    def __init__(self, self_attn, key_outputs=None, freqfold=None, rope_head=1, collapse=1):
+    def __init__(self, self_attn, key_outputs=None, freqfold=1, rope_head=1, collapse=1):
         super().__init__()
         self.config = self_attn.config
         self.layer_idx = self_attn.layer_idx
@@ -40,6 +43,8 @@ class RemoveRope(nn.Module):
         self.attention_dropout = self_attn.attention_dropout
         self.rope_head = rope_head
         self.collapse = collapse
+        self.scaling = self.head_dim**(-0.5)
+        self.attention_function = ALL_ATTENTION_FUNCTIONS["sdpa"]
         assert freqfold % self.collapse == 0, f"latent_dim ({self.latent_dim}) must be divisible by collapse ({self.collapse})"
 
         self.q_proj = self_attn.q_proj
@@ -145,25 +150,23 @@ class RemoveRope(nn.Module):
         if past_key_value is not None:
             cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}  # Specific to RoPE models
             key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
-
-        attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim)
-        if attention_mask is not None:  # no matter the length, we just slice it
-            causal_mask = attention_mask[:, :, :, : key_states.shape[-2]]
-            attn_weights = attn_weights + causal_mask
-            
-        attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
-        attn_weights = nn.functional.dropout(attn_weights, p=self.attention_dropout, training=self.training)
        
         v_up_weight = self.v_up_proj.weight.view(self.num_key_value_heads, self.num_attention_heads//self.num_key_value_heads, self.head_dim, self.latent_dim)
         value_states = torch.einsum("bhtc,hgdc->bhgtd", value_states, v_up_weight)
         value_states = value_states.reshape(bsz, self.num_attention_heads, -1, self.head_dim)
-        attn_output = torch.matmul(attn_weights, value_states)
-        
-        attn_output = attn_output.transpose(1, 2).contiguous()
-        attn_output = attn_output.reshape(bsz, q_len, -1)
 
+        
+        attn_output, attn_weights = self.attention_function(
+            self,
+            query_states,
+            key_states,
+            value_states,
+            attention_mask,
+            dropout=0.0 if not self.training else self.attention_dropout,
+            scaling=self.scaling,
+        )
+
+        attn_output = attn_output.reshape(bsz, q_len, -1).contiguous()
         attn_output = self.o_proj(attn_output)
-        if not output_attentions:
-            attn_weights = None
 
         return attn_output, attn_weights

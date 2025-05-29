@@ -20,9 +20,9 @@ pip install -r requirements.txt
 
 # Run
 
-1. Convert MHA / GQA models (e.g. Llama-2-7b) into DeepSeek-MLA:
+1. Convert MHA / GQA models (e.g. Qwen2.5-7B-Instruct) into DeepSeek-MLA:
     ```bash
-    bash scripts/convert/llama2-7B.sh
+    bash scripts/convert/qwen2.5-7B-Instruct.sh
     ```
 2. Have fun playing with the converted models!
     ```python
@@ -30,7 +30,7 @@ pip install -r requirements.txt
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
-    model = AutoModelForCausalLM.from_pretrained("outputs/llama2-7B-deepseek", torch_dtype=torch.bfloat16, device_map="cuda", _attn_implementation="flash_attention_2", trust_remote_code=True)
+    model = AutoModelForCausalLM.from_pretrained("outputs/qwen2.5-7B-Instruct-deepseek", torch_dtype=torch.bfloat16, device_map="cuda", _attn_implementation="flash_attention_2", trust_remote_code=True)
     ```
 
 # To-Do
