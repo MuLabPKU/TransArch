@@ -5,6 +5,7 @@ Modern large language models (LLMs) often encounter communication bottlenecks, r
 Despite the proven efficiency and effectiveness of MLA in DeepseekV2/V3, major model providers still rely on GQA, with no public plans to transition to MLA. To facilitate broader adoption, we introduce TransMLA, a post-training method that converts widely used GQA-based pre-trained models into MLA models. This conversion is followed by further training to boost expressiveness without increasing the KV cache size. We also plan to develop MLA-specific inference acceleration techniques to reduce the transformed model's inference latency, ultimately unlocking MLA’s full potential in large-scale LLM deployments.
 
 # News
+- [2025.05.29] A new version of technical report is released: [https://arxiv.org/abs/2502.07864](https://arxiv.org/abs/2502.07864).
 - [2025.04.28] Released TransMLA v3, successfully apply PCA across RoPE and reduce KV Cache.
 - [2025.02.16] Released the second version of the TransMLA model and usage code, compatible with RoPE and supporting Absorb operation.
 - [2025.02.13] The technical report of TransMLA is publicly available: [https://huggingface.co/papers/2502.07864](https://huggingface.co/papers/2502.07864)
@@ -14,12 +15,7 @@ Despite the proven efficiency and effectiveness of MLA in DeepseekV2/V3, major m
 ```
 conda create -n transmla python=3.12.8
 conda activate transmla
-pip install vllm==0.8.4
-pip install datasets
-pip install accelerate==1.3.0
-pip install ipykernel
-pip install datatrove
-pip install tensorboardX
+pip install -r requirements.txt
 ```
 
 # Run
@@ -38,7 +34,7 @@ pip install tensorboardX
     ```
 
 # To-Do
-- [ ] Publish the technical report for the new version, detailing how TransMLA is compatible with RoPE, supports the Absorb operation.
+- [x] Publish the technical report for the new version, detailing how TransMLA is compatible with RoPE, supports the Absorb operation.
 - [x] Compress the dimensions of the KV cache to improve inference speed.
 - [ ] Release checkpoint.
 - [x] Add support for vLLM to improve inference speed.

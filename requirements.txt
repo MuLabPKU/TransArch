@@ -1,0 +1,5 @@
+vllm==0.8.4
+datasets
+accelerate==1.3.0
+datatrove
+tensorboardX
