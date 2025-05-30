@@ -45,7 +45,7 @@ class RemoveRope(nn.Module):
         self.collapse = collapse
         self.scaling = self.head_dim**(-0.5)
         self.attention_function = ALL_ATTENTION_FUNCTIONS["sdpa"]
-        assert freqfold % self.collapse == 0, f"latent_dim ({self.latent_dim}) must be divisible by collapse ({self.collapse})"
+        assert freqfold % self.collapse == 0, f"freqfold ({freqfold}) must be divisible by collapse ({self.collapse})"
 
         self.q_proj = self_attn.q_proj
         self.k_proj = self_attn.k_proj
@@ -65,8 +65,8 @@ class RemoveRope(nn.Module):
         v_up_eye = torch.eye(self.latent_dim, dtype=self.v_proj.weight.dtype, device=self.v_proj.weight.device)
         k_up_eye = k_up_eye.reshape(self.num_key_value_heads, self.head_dim, self.latent_dim)
         v_up_eye = v_up_eye.reshape(self.num_key_value_heads, self.head_dim, self.latent_dim)
-        self.k_up_proj.weight.data = torch.stack([k_up_eye]*kv_groups,dim=1).reshape(self.hidden_size, self.latent_dim).contiguous()
-        self.v_up_proj.weight.data = torch.stack([v_up_eye]*kv_groups,dim=1).reshape(self.hidden_size, self.latent_dim).contiguous()
+        self.k_up_proj.weight.data = torch.stack([k_up_eye]*kv_groups,dim=1).reshape(-1, self.latent_dim).contiguous()
+        self.v_up_proj.weight.data = torch.stack([v_up_eye]*kv_groups,dim=1).reshape(-1, self.latent_dim).contiguous()
 
     @torch.no_grad()
     def joint_complex_pca(self, Z: list[torch.Tensor], freqfold: int = 1) -> torch.Tensor:
@@ -112,12 +112,12 @@ class RemoveRope(nn.Module):
     def rotate_k_up_proj(self, U, freqfold=1):
         k_up_weight = deepcopy(self.k_up_proj.weight.data)
         U = U.to(k_up_weight.dtype).to(k_up_weight.device)
-        k_up_weight = k_up_weight.reshape(self.hidden_size, self.num_key_value_heads, self.head_dim//freqfold, freqfold//self.collapse, self.collapse)
-        k_up_weight = k_up_weight.permute(0, 4, 1, 3, 2).reshape(self.hidden_size, self.num_key_value_heads*freqfold, self.head_dim//freqfold)
+        k_up_weight = k_up_weight.reshape(-1, self.num_key_value_heads, self.head_dim//freqfold, freqfold//self.collapse, self.collapse)
+        k_up_weight = k_up_weight.permute(0, 4, 1, 3, 2).reshape(-1, self.num_key_value_heads*freqfold, self.head_dim//freqfold)
         k_up_weight = torch.einsum("dhc,Dhd->Dcd", U, k_up_weight)
-        k_up_weight = k_up_weight.reshape(self.hidden_size, self.collapse, self.num_key_value_heads, freqfold//self.collapse, self.head_dim//freqfold)
-        k_up_weight = k_up_weight.permute(0, 1, 2, 4, 3).reshape(self.hidden_size, self.latent_dim)
-        assert self.k_up_proj.weight.data.shape == (self.hidden_size, self.latent_dim)
+        k_up_weight = k_up_weight.reshape(-1, self.collapse, self.num_key_value_heads, freqfold//self.collapse, self.head_dim//freqfold)
+        k_up_weight = k_up_weight.permute(0, 1, 2, 4, 3).reshape(-1, self.latent_dim)
+        # assert self.k_up_proj.weight.data.shape == (self.hidden_size, self.latent_dim)
         self.k_up_proj.weight.data = k_up_weight.contiguous()
   
     def forward(

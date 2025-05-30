@@ -4,7 +4,7 @@ import math
 from typing import Optional, Tuple
 import torch.nn.functional as F
 from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
-from .utils import pca_calc
+from utils import pca_calc
 
 def rotate_half(x):
     x1 = x[..., : x.shape[-1] // 2]
@@ -61,7 +61,8 @@ class LoraQKV(nn.Module):
         assert self.kv_lora_rank <= 2 * self.latent_dim - self.qk_mqa_dim, f"kv_lora_rank ({self.kv_lora_rank}) must be less than 2 * latent_dim ({self.latent_dim}) - qk_mqa_dim ({self.qk_mqa_dim})"
 
         self.attention_function = ALL_ATTENTION_FUNCTIONS["sdpa"]
-        self.scaling = (self.head_dim + self.qk_mqa_dim)**(-0.5)
+        # self.scaling = (self.head_dim + self.qk_mqa_dim)**(-0.5)
+        self.scaling = self.head_dim**(-0.5)
 
         # -----------------Attributes for the bias-----------------
         self.q_bias = self_attn.q_proj.bias is not None
@@ -184,7 +185,8 @@ class LoraQKV(nn.Module):
             self.q_a_proj.weight.data = q_a_weight.contiguous()
 
         # 1.2 Initialize q_b_proj
-        scaling = math.sqrt(self.head_dim + self.qk_mqa_dim) / math.sqrt(self.head_dim)
+        # scaling = math.sqrt(self.head_dim + self.qk_mqa_dim) / math.sqrt(self.head_dim)
+        scaling = 1
         if self.q_lora_rank is not None:
             # Absorb the rope part of k_b_proj into q_b_proj
             q_b_rope_weight = torch.einsum("hdq,hdk->hkq", q_b_weight, k_b_rope_weight)

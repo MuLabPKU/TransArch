@@ -24,7 +24,7 @@ def get_dataset(name: str) -> datasets.DatasetDict:
         "ptb": {"path": "ptb_text_only", "config_name": "penn_treebank"},
         "c4": {
             "path": "allenai/c4",
-            "config_name": "allenai--c4",
+            "config_name": "en",
             "data_files": {
                 "train": "en/c4-train.00000-of-01024.json.gz",
                 "validation": "en/c4-validation.00000-of-00008.json.gz",
@@ -227,7 +227,7 @@ def evaluate_ppl(
     for batch in tqdm(testloader):
         logging.debug(f"Evaluating batch {len(nlls)}")
         batch = map_tensors(batch, model.model.embed_tokens.weight.device)
-        logits = model(**batch).logits
+        logits = model(**batch, use_cache=False).logits
 
         # shift outputs and labels autoregressively.
         logits = logits[:, :-1, :]
@@ -326,7 +326,7 @@ def get_qkv_calibrate_outputs(
     for batch in tqdm(trainloader):
         batch = map_tensors(batch, model.model.embed_tokens.weight.device)
         ignore_masks.append(batch["attention_mask"].to('cpu'))
-        model(**batch)
+        model(**batch, use_cache=False)
 
     elapsed = time.time() - start_time
     logging.info(

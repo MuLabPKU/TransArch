@@ -31,7 +31,7 @@ from transformers.utils import (
     replace_return_docstrings,
 )
 from transformers.utils.deprecation import deprecate_kwarg
-from .configuration_deepseek_v3 import DeepseekV3Config
+from .configuration_gemma2mla import DeepseekV3Config
 
 
 if is_torch_flex_attn_available():
@@ -45,23 +45,23 @@ _CONFIG_FOR_DOC = "DeepseekV3Config"
 
 
 class DeepseekV3RMSNorm(nn.Module):
-    def __init__(self, hidden_size, eps=1e-6):
-        """
-        DeepseekV3RMSNorm is equivalent to T5LayerNorm
-        """
+    def __init__(self, dim: int, eps: float = 1e-6):
         super().__init__()
-        self.weight = nn.Parameter(torch.ones(hidden_size))
-        self.variance_epsilon = eps
+        self.eps = eps
+        self.weight = nn.Parameter(torch.zeros(dim))
 
-    def forward(self, hidden_states):
-        input_dtype = hidden_states.dtype
-        hidden_states = hidden_states.to(torch.float32)
-        variance = hidden_states.pow(2).mean(-1, keepdim=True)
-        hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
-        return self.weight * hidden_states.to(input_dtype)
+    def _norm(self, x):
+        return x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
+
+    def forward(self, x):
+        output = self._norm(x.float())
+        # Llama does x.to(float16) * w whilst Gemma2 is (x * w).to(float16)
+        # See https://github.com/huggingface/transformers/pull/29402
+        output = output * (1.0 + self.weight.float())
+        return output.type_as(x)
 
     def extra_repr(self):
-        return f"{tuple(self.weight.shape)}, eps={self.variance_epsilon}"
+        return f"{tuple(self.weight.shape)}, eps={self.eps}"
 
 
 class DeepseekV3RotaryEmbedding(nn.Module):
@@ -273,6 +273,8 @@ def eager_attention_forward(
     dropout: float = 0.0,
     **kwargs,
 ):
+    raise NotImplementedError("Eager attention is not implemented for GemmaMLA")
+
     key_states = repeat_kv(key, module.num_key_value_groups)
     value_states = repeat_kv(value, module.num_key_value_groups)
     attn_weights = torch.matmul(query, key_states.transpose(2, 3)) * scaling
@@ -373,7 +375,10 @@ class DeepseekV3Attention(nn.Module):
             bias=False,
         )
 
-        self.scaling = self.qk_head_dim ** (-0.5)
+        # self.scaling = self.qk_head_dim ** (-0.5)
+        # in gemma2, the scaling is 1/sqrt(query_pre_attn_scalar)!!
+        self.scaling = self.config.query_pre_attn_scalar ** (-0.5)
+        self.attn_logit_softcapping = self.config.attn_logit_softcapping
         if self.config.rope_scaling is not None:
             mscale_all_dim = self.config.rope_scaling.get("mscale_all_dim", 0)
             scaling_factor = self.config.rope_scaling["factor"]
@@ -443,6 +448,7 @@ class DeepseekV3Attention(nn.Module):
             attention_mask,
             dropout=0.0 if not self.training else self.attention_dropout,
             scaling=self.scaling,
+            softcap=self.attn_logit_softcapping,
             **kwargs,
         )
         if self.config._attn_implementation == "flash_attention_2" and self.qk_head_dim != self.v_head_dim:
@@ -466,6 +472,9 @@ class DeepseekV3DecoderLayer(nn.Module):
 
         self.input_layernorm = DeepseekV3RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.post_attention_layernorm = DeepseekV3RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+
+        self.pre_feedforward_layernorm = DeepseekV3RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        self.post_feedforward_layernorm = DeepseekV3RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
     def forward(
         self,
@@ -495,15 +504,17 @@ class DeepseekV3DecoderLayer(nn.Module):
             position_embeddings=position_embeddings,
             **kwargs,
         )
+        hidden_states = self.post_attention_layernorm(hidden_states)
         hidden_states = residual + hidden_states
 
-        # Fully Connected
         residual = hidden_states
-        hidden_states = self.post_attention_layernorm(hidden_states)
+        hidden_states = self.pre_feedforward_layernorm(hidden_states)
         hidden_states = self.mlp(hidden_states)
+        hidden_states = self.post_feedforward_layernorm(hidden_states)
         hidden_states = residual + hidden_states
 
         outputs = (hidden_states,)
+
         if output_attentions:
             outputs += (self_attn_weights,)
 
@@ -721,6 +732,12 @@ class DeepseekV3Model(DeepseekV3PreTrainedModel):
 
         # create position embeddings to be shared across the decoder layers
         position_embeddings = self.rotary_emb(hidden_states, position_ids)
+
+        # normalized
+        # Gemma2 downcasts the below to float16, causing sqrt(3072)=55.4256 to become 55.5
+        # See https://github.com/huggingface/transformers/pull/29402
+        normalizer = torch.tensor(self.config.hidden_size**0.5, dtype=hidden_states.dtype)
+        hidden_states = hidden_states * normalizer
 
         # decoder layers
         all_hidden_states = () if output_hidden_states else None
@@ -1010,6 +1027,10 @@ class DeepseekV3ForCausalLM(DeepseekV3PreTrainedModel, GenerationMixin):
         # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
+        if self.config.final_logit_softcapping is not None:
+            logits = logits / self.config.final_logit_softcapping
+            logits = torch.tanh(logits)
+            logits = logits * self.config.final_logit_softcapping
 
         loss = None
         if labels is not None:

@@ -1,5 +1,5 @@
-model_path=meta-llama/Llama-2-7b-hf
-save_path=outputs/llama2-7B-deepseek
+model_path=google/gemma-2-9b-it
+save_path=outputs/gemma2-9B-it-deepseek
 eval_batch_size=4
 
 
@@ -11,5 +11,5 @@ python transmla/converter.py \
     --ppl-eval-batch-size $eval_batch_size
 
 
-# 2. copy `modeling_llamamla.py` and `configuration_llamamla.py`
-cp transmla/transformers/llama/* $save_path/
+# 2. copy `modeling_gemma2mla.py` and `configuration_gemma2mla.py`
+cp transmla/transformers/gemma2/* $save_path/

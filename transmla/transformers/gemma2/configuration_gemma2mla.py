@@ -189,6 +189,9 @@ class DeepseekV3Config(PretrainedConfig):
         rope_interleave=True,
         attention_bias=False,
         attention_dropout=0.0,
+        attn_logit_softcapping=50.0,
+        final_logit_softcapping=30.0,
+        query_pre_attn_scalar=256,
         **kwargs,
     ):
         self.vocab_size = vocab_size
@@ -229,6 +232,9 @@ class DeepseekV3Config(PretrainedConfig):
         self.rope_scaling = rope_scaling
         self.attention_bias = attention_bias
         self.attention_dropout = attention_dropout
+        self.attn_logit_softcapping = attn_logit_softcapping
+        self.final_logit_softcapping = final_logit_softcapping
+        self.query_pre_attn_scalar = query_pre_attn_scalar
         # Validate the correctness of rotary position embeddings parameters
         # BC: if there is a 'type' field, copy it it to 'rope_type'.
         if self.rope_scaling is not None and "type" in self.rope_scaling:
