@@ -204,7 +204,10 @@ def map_tensors(obj, device: torch.device | str | None = None, dtype: torch.dtyp
     
 @torch.no_grad()
 def evaluate_ppl(
-    model: torch.nn.Module, pad_token_id: int | None, testloader: DataLoader[dict[str, torch.Tensor]]
+    model: torch.nn.Module, 
+    pad_token_id: int | None, 
+    testloader: DataLoader[dict[str, torch.Tensor]], 
+    message: str = "Evaluating perplexity"
 ) -> float:
     """
     Evaluate the model's perplexity on the test set using batch processing.
@@ -223,8 +226,8 @@ def evaluate_ppl(
 
     nlls = []
 
-    logging.info("Evaluating perplexity...")
-    for batch in tqdm(testloader):
+    logging.info(message)
+    for batch in tqdm(testloader, desc=message):
         logging.debug(f"Evaluating batch {len(nlls)}")
         batch = map_tensors(batch, model.model.embed_tokens.weight.device)
         logits = model(**batch, use_cache=False).logits
@@ -311,8 +314,10 @@ def insert_qkv_hooks(model):
 
 @torch.no_grad()
 def get_qkv_calibrate_outputs(
-    model: torch.nn.Module, trainloader: DataLoader[dict[str, torch.Tensor]]
-) -> tuple[list[torch.Tensor], list[torch.Tensor]]:
+    model: torch.nn.Module, 
+    trainloader: DataLoader[dict[str, torch.Tensor]], 
+    message: str = "Calibrating QKV"
+):
     """
     Take the input signals ("activations") for a layer, run the layer forward.
     """
@@ -322,8 +327,8 @@ def get_qkv_calibrate_outputs(
     model.eval()
     query_hooks, key_hooks, value_hooks, q_a_proj_hooks, kv_a_proj_with_mqa_hooks, query_outputs, key_outputs, value_outputs, q_a_proj_outputs, kv_a_proj_with_mqa_outputs = insert_qkv_hooks(model)
     ignore_masks = []
-    logging.info("Training perplexity...")
-    for batch in tqdm(trainloader):
+    logging.info(message)
+    for batch in tqdm(trainloader, desc=message):
         batch = map_tensors(batch, model.model.embed_tokens.weight.device)
         ignore_masks.append(batch["attention_mask"].to('cpu'))
         model(**batch, use_cache=False)

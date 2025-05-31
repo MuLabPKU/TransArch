@@ -65,6 +65,7 @@ ALL_CONFIG_MODIFIERS = {
     "llama": modify_llama_config,
     "qwen2": modify_llama_config,
     "gemma2": modify_gemma2_config,
+    "mistral": modify_llama_config,
 }
 
 __all__ = ["ALL_CONFIG_MODIFIERS"]

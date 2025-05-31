@@ -5,6 +5,8 @@ from copy import deepcopy
 from typing import Optional, Tuple
 from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
 
+from utils import get_qkv_calibrate_outputs, evaluate_ppl
+
 def rotate_half(x, group):
     rotate_x = []
     dh = x.shape[-1] // group
@@ -170,3 +172,61 @@ class RemoveRope(nn.Module):
         attn_output = self.o_proj(attn_output)
 
         return attn_output, attn_weights
+
+
+
+def remove_rope(model, tokenizer, train_loader, test_loader, **kwargs):
+
+    freqfold = kwargs["freqfold"]
+    collapse = kwargs["collapse"]
+
+    message = "Calibrating original model's qkv outputs"
+    ori_qkv_outputs = get_qkv_calibrate_outputs(model, train_loader, message)
+
+    def remove_rope_freqfold(model, ori_qkv_outputs, test_loader, freqfold: int, collapse):
+        for layer_idx, layer in enumerate(model.model.layers):
+            setattr(layer, "self_attn", RemoveRope(
+                layer.self_attn, 
+                ori_qkv_outputs["key"][layer_idx], 
+                freqfold=freqfold,
+                collapse=collapse,
+            ))
+            
+        if test_loader:
+            message = f"Evaluating rope-removed model's ppl, freqfold={freqfold}"
+            dataset_ppl = evaluate_ppl(model, tokenizer.pad_token_id, test_loader, message)
+            print(f'Remove RoPE ppl, freqfold={freqfold}: {dataset_ppl:.4f}')
+            return model, dataset_ppl
+        else:
+            return model, None
+
+    if freqfold != "auto":
+        freqfold = int(freqfold)
+        return remove_rope_freqfold(model, ori_qkv_outputs, test_loader, freqfold, collapse)[0]
+    else:
+        assert test_loader is not None, "test_loader is required for auto freqfold detection"
+        device = model.device
+        model_original = model.to("cpu")
+
+        print(f"Auto freqfold detection...")
+
+        best_freqfold = freqfold = collapse
+        best_ppl = float("inf")
+        while freqfold <= model_original.config.head_dim // 2:
+            model = deepcopy(model_original)
+            model = model.to(device)
+            model, ppl = remove_rope_freqfold(model, ori_qkv_outputs, test_loader, freqfold, collapse)
+            if ppl < best_ppl:
+                best_ppl = ppl
+                best_freqfold = freqfold
+                freqfold *= 2
+            else:
+                break
+
+        model = deepcopy(model_original)
+        model = model.to(device)
+        model, _ = remove_rope_freqfold(model, ori_qkv_outputs, None, best_freqfold, collapse)
+
+        print(f"Best freqfold: {best_freqfold}")
+
+        return model, best_freqfold
