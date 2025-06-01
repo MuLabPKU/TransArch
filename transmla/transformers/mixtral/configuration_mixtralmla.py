@@ -1,7 +1,7 @@
-from transformers.models.llama.configuration_llama import LlamaConfig
+from transformers.models.mixtral.configuration_mixtral import MixtralConfig
 
-class LlamaMLAConfig(LlamaConfig):
-    model_type = "llamamla"
+class MixtralMLAConfig(MixtralConfig):
+    model_type = "mixtralmla"
 
     def __init__(
         self, 
@@ -12,6 +12,7 @@ class LlamaMLAConfig(LlamaConfig):
         qk_nope_head_dim=128,
         v_head_dim=128,
         query_pre_attn_scalar=128,
+        attention_bias=False,
         softcap=None,
         **kwargs
     ):
@@ -25,3 +26,4 @@ class LlamaMLAConfig(LlamaConfig):
         self.v_head_dim = v_head_dim
         self.query_pre_attn_scalar = query_pre_attn_scalar
         self.softcap = softcap
+        self.attention_bias = attention_bias

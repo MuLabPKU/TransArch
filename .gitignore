@@ -4,6 +4,7 @@ __pycache__/
 *$py.class
 *outputs
 *meta-llama
+debug
 
 # C extensions
 *.so

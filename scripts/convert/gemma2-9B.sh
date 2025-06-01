@@ -12,5 +12,6 @@ python transmla/converter.py \
     --cal-dataset alpaca
 
 
-# 2. copy `modeling_gemma2mla.py` and `configuration_gemma2mla.py`
+# 2. copy modeling and configuration files
 cp transmla/transformers/gemma2/* $save_path/
+cp transmla/transformers/mla.py $save_path/

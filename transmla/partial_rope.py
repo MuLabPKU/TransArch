@@ -32,7 +32,7 @@ def apply_rotary_pos_emb(q, k, cos, sin, rope_head=1):
     k_embed = torch.cat([k_rope_embed, k_nope], dim=-1)
     return q_embed, k_embed
 
-class RemoveRope(nn.Module):
+class PartialRope(nn.Module):
     def __init__(self, self_attn, key_outputs=None, freqfold=1, rope_head=1, collapse=1):
         super().__init__()
         self.config = self_attn.config
@@ -175,7 +175,7 @@ class RemoveRope(nn.Module):
 
 
 
-def remove_rope(model, tokenizer, train_loader, test_loader, **kwargs):
+def partial_rope(model, tokenizer, train_loader, test_loader, **kwargs):
 
     freqfold = kwargs["freqfold"]
     collapse = kwargs["collapse"]
@@ -183,9 +183,9 @@ def remove_rope(model, tokenizer, train_loader, test_loader, **kwargs):
     message = "Calibrating original model's qkv outputs"
     ori_qkv_outputs = get_qkv_calibrate_outputs(model, train_loader, message)
 
-    def remove_rope_freqfold(model, ori_qkv_outputs, test_loader, freqfold: int, collapse):
+    def partial_rope_freqfold(model, ori_qkv_outputs, test_loader, freqfold: int, collapse):
         for layer_idx, layer in enumerate(model.model.layers):
-            setattr(layer, "self_attn", RemoveRope(
+            setattr(layer, "self_attn", PartialRope(
                 layer.self_attn, 
                 ori_qkv_outputs["key"][layer_idx], 
                 freqfold=freqfold,
@@ -193,16 +193,16 @@ def remove_rope(model, tokenizer, train_loader, test_loader, **kwargs):
             ))
             
         if test_loader:
-            message = f"Evaluating rope-removed model's ppl, freqfold={freqfold}"
+            message = f"Evaluating partial-rope model's ppl, freqfold={freqfold}"
             dataset_ppl = evaluate_ppl(model, tokenizer.pad_token_id, test_loader, message)
-            print(f'Remove RoPE ppl, freqfold={freqfold}: {dataset_ppl:.4f}')
+            print(f'Partial RoPE ppl, freqfold={freqfold}: {dataset_ppl:.4f}')
             return model, dataset_ppl
         else:
             return model, None
 
     if freqfold != "auto":
         freqfold = int(freqfold)
-        return remove_rope_freqfold(model, ori_qkv_outputs, test_loader, freqfold, collapse)[0]
+        return partial_rope_freqfold(model, ori_qkv_outputs, test_loader, freqfold, collapse)[0]
     else:
         assert test_loader is not None, "test_loader is required for auto freqfold detection"
         device = model.device
@@ -215,7 +215,7 @@ def remove_rope(model, tokenizer, train_loader, test_loader, **kwargs):
         while freqfold <= model_original.config.head_dim // 2:
             model = deepcopy(model_original)
             model = model.to(device)
-            model, ppl = remove_rope_freqfold(model, ori_qkv_outputs, test_loader, freqfold, collapse)
+            model, ppl = partial_rope_freqfold(model, ori_qkv_outputs, test_loader, freqfold, collapse)
             if ppl < best_ppl:
                 best_ppl = ppl
                 best_freqfold = freqfold
@@ -225,7 +225,7 @@ def remove_rope(model, tokenizer, train_loader, test_loader, **kwargs):
 
         model = deepcopy(model_original)
         model = model.to(device)
-        model, _ = remove_rope_freqfold(model, ori_qkv_outputs, None, best_freqfold, collapse)
+        model, _ = partial_rope_freqfold(model, ori_qkv_outputs, None, best_freqfold, collapse)
 
         print(f"Best freqfold: {best_freqfold}")
 

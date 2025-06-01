@@ -1,5 +1,5 @@
 model_path=Qwen/Qwen2.5-7B-Instruct
-save_path=outputs/qwen2.5-7B-Instruct-deepseek
+save_path=outputs/qwen2_5-7B-Instruct-deepseek
 eval_batch_size=8
 
 
@@ -11,5 +11,6 @@ python transmla/converter.py \
     --ppl-eval-batch-size $eval_batch_size
 
 
-# 2. copy `modeling_llamamla.py` and `configuration_llamamla.py`
+# 2. copy modeling and configuration files
 cp transmla/transformers/llama/* $save_path/
+cp transmla/transformers/mla.py $save_path/

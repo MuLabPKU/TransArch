@@ -1,5 +1,5 @@
 model_path=mistralai/Mistral-7B-v0.3
-save_path=outputs/mistral-7B-v0.3-deepseek
+save_path=outputs/mistral-7B-deepseek
 eval_batch_size=8
 
 
@@ -11,5 +11,6 @@ python transmla/converter.py \
     --ppl-eval-batch-size $eval_batch_size
 
 
-# 2. copy `modeling_llamamla.py` and `configuration_llamamla.py`
+# 2. copy modeling and configuration files
 cp transmla/transformers/llama/* $save_path/
+cp transmla/transformers/mla.py $save_path/

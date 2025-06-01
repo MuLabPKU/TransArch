@@ -66,10 +66,11 @@ class LoraQKV(nn.Module):
         self.scaling = self.head_dim**(-0.5)
 
         # -----------------Attributes for the bias-----------------
-        self.q_bias = self_attn.q_proj.bias is not None
-        self.k_bias = self_attn.k_proj.bias is not None
-        self.v_bias = self_attn.v_proj.bias is not None
-        assert self.k_bias == self.v_bias
+        q_bias = self_attn.q_proj.bias is not None
+        k_bias = self_attn.k_proj.bias is not None
+        v_bias = self_attn.v_proj.bias is not None
+        assert q_bias == k_bias == v_bias, f"q_bias ({q_bias}), k_bias ({k_bias}), v_bias ({v_bias}) must be the same"
+        self.attention_bias = q_bias
 
         # -----------------module definitions-----------------
         # q_a_proj & q_b_proj
@@ -86,7 +87,7 @@ class LoraQKV(nn.Module):
             self.q_b_proj = nn.Linear(
                 q_lora_rank,
                 self.num_attention_heads * (self.qk_mqa_dim + self.head_dim), 
-                bias=self.q_bias,
+                bias=self.attention_bias,
                 device = self_attn.q_proj.weight.device,
                 dtype = self.dtype,
             )
@@ -94,7 +95,7 @@ class LoraQKV(nn.Module):
             self.q_proj = nn.Linear(
                 self.hidden_size, 
                 self.num_attention_heads * (self.qk_mqa_dim + self.head_dim), 
-                bias=self.q_bias,
+                bias=self.attention_bias,
                 device = self_attn.q_proj.weight.device,
                 dtype = self.dtype,
             )
@@ -102,7 +103,7 @@ class LoraQKV(nn.Module):
         self.kv_a_proj_with_mqa = nn.Linear(
             self.hidden_size,
             kv_lora_rank + qk_mqa_dim,
-            bias=self.k_bias,
+            bias=self.attention_bias,
             device = self_attn.k_proj.weight.device,
             dtype = self.dtype,
         )
@@ -111,7 +112,7 @@ class LoraQKV(nn.Module):
         self.kv_b_proj = nn.Linear(
             kv_lora_rank,
             self.num_attention_heads * self.head_dim * 2,
-            bias=self.k_bias,
+            bias=self.attention_bias,
             device = self_attn.k_proj.weight.device,
             dtype = self.dtype,
         )
@@ -131,7 +132,7 @@ class LoraQKV(nn.Module):
 
         # -----------------apply pca on the query and key/value outputs-----------------
         if self.q_lora_rank is not None:
-            if self.q_bias:
+            if self.attention_bias:
                 # If q_bias is not None, we need to remove the bias from the query_outputs, 
                 # because the bias part does not need pca.
                 R_q = pca_calc(
@@ -142,7 +143,7 @@ class LoraQKV(nn.Module):
                 R_q = pca_calc(query_outputs, self_attn.q_proj.weight.device)
         else:
             R_q = None
-        if self.k_bias:
+        if self.attention_bias:
             # If k_bias is not None, we need to remove the bias from the kv_outputs, 
             # because the bias part does not need pca.
             kv_bias = torch.cat([self_attn.k_proj.bias.data[qk_mqa_dim:] / ratio, self_attn.v_proj.bias.data])
@@ -162,17 +163,17 @@ class LoraQKV(nn.Module):
         k_b_rope_weight, k_b_nope_weight = self_attn.k_up_proj.weight.data.split([self.qk_mqa_dim, self.latent_dim - self.qk_mqa_dim], dim=1)
         k_b_rope_weight = k_b_rope_weight.view(self.num_attention_heads, self.head_dim, self.qk_mqa_dim)
         k_b_nope_weight = k_b_nope_weight.view(self.num_attention_heads, self.head_dim, self.latent_dim-self.qk_mqa_dim)
-        if self.k_bias:
+        if self.attention_bias:
             k_bias_rope, k_bias_nope = self_attn.k_proj.bias.data.split([self.qk_mqa_dim, self.latent_dim - self.qk_mqa_dim], dim=0)
             # k_bias = self_attn.k_proj.bias.data
         
         v_a_nope_weight  = self_attn.v_proj.weight.data
         v_b_nope_weight = self_attn.v_up_proj.weight.data
         v_b_nope_weight = v_b_nope_weight.view(self.num_attention_heads, self.head_dim, self.latent_dim)
-        if self.v_bias:
+        if self.attention_bias:
             v_bias = self_attn.v_proj.bias.data
 
-        if self.q_bias:
+        if self.attention_bias:
             q_bias = self_attn.q_proj.bias.data
 
 
@@ -202,7 +203,7 @@ class LoraQKV(nn.Module):
             self.q_b_proj.weight.data = q_b_with_mqa_weight.contiguous() * scaling
             
             # Considering the bias
-            if self.q_bias:
+            if self.attention_bias:
                 q_b_bias = q_bias.reshape(self.num_attention_heads, self.head_dim)
                 q_b_rope_bias = torch.einsum("hd,hdk->hk", q_b_bias, k_b_rope_weight)
                 q_b_with_mqa_bias = torch.cat([q_b_bias, q_b_rope_bias], dim=1).flatten()
@@ -217,7 +218,7 @@ class LoraQKV(nn.Module):
             assert self.q_proj.weight.data.shape == q_with_mqa_weight.shape
             self.q_proj.weight.data = q_with_mqa_weight.contiguous() * scaling
 
-            if self.q_bias:
+            if self.attention_bias:
                 q_bias = q_bias.reshape(self.num_attention_heads, self.head_dim)
                 q_rope_bias = torch.einsum("hd,hdk->hk", q_bias.to(torch.float64), k_b_rope_weight.to(torch.float64)).to(self.dtype)
                 q_bias = torch.cat([q_bias, q_rope_bias], dim=1).flatten()
@@ -245,7 +246,7 @@ class LoraQKV(nn.Module):
         self.kv_a_proj_with_mqa.weight.data = kv_a_proj_with_mqa_weight.contiguous()
 
         # 2.3 Considering the bias of kv
-        if self.k_bias:
+        if self.attention_bias:
             kv_a_bias = torch.zeros(self.kv_lora_rank, dtype=self.dtype, device=self_attn.k_proj.bias.device)
             # kv_a_bias = torch.zeros_like(torch.cat([k_bias_nope, v_bias], dim=0), dtype=self.dtype, device=self_attn.k_proj.bias.device)
             kv_a_with_mqa_bias = torch.cat([kv_a_bias, k_bias_rope], dim=0)

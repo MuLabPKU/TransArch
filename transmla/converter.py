@@ -6,9 +6,9 @@ import json
 from typing import Union, Literal
 from copy import deepcopy
 
-from config_modifiers import ALL_CONFIG_MODIFIERS
+from modify_config import modify_config
 from utils import get_dataset, prepare_dataloader, prepare_test_dataloader, evaluate_ppl, get_qkv_calibrate_outputs, statistics_qkv_rmsnorm
-from remove_rope import remove_rope
+from partial_rope import partial_rope
 from lora_qkv import low_rank_qkv
 
 
@@ -78,7 +78,7 @@ def main(args):
     print("="*60 + "\n")
 
     if args.collapse == "auto":
-        head_dim = model.config.head_dim if model.config.head_dim else model.config.hidden_size // model.config.num_attention_heads
+        head_dim = model.config.head_dim if hasattr(model.config, "head_dim") else model.config.hidden_size // model.config.num_attention_heads
         model.config.head_dim = head_dim
         args.collapse = head_dim // args.qk_mqa_dim
         print(f"Auto collapse: {args.collapse} (head_dim={head_dim} / qk_mqa_dim={args.qk_mqa_dim})")
@@ -105,8 +105,7 @@ def main(args):
     tokenizer.save_pretrained(os.path.join(args.save_path))
 
     # modify config
-    config_modifier = ALL_CONFIG_MODIFIERS[model_type]
-    config_modifier(model, os.path.join(args.save_path, "config.json"), args)
+    modify_config(model, os.path.join(args.save_path, "config.json"), args)
 
     
 if __name__ == "__main__":
@@ -115,7 +114,7 @@ if __name__ == "__main__":
     parser.add_argument("--model-path", type=str, default="meta-llama/Llama-2-7b-hf", help="Model to load")
     parser.add_argument("--save-path", type=str, default="outputs", help="output path.")
     parser.add_argument("--dtype", type=str, help="Data type to use.", choices=["fp32", "fp16", "bf16"], default="bf16")
-    parser.add_argument("--device", type=str, help="Device to use.", choices=["cpu", "cuda", "auto"], default="auto")
+    parser.add_argument("--device", type=str, help="Device to use.", default="auto")
     parser.add_argument("--cal-dataset", type=str, help="Dataset to calibrate and calculate perplexity on.", choices=["wikitext2", "ptb", "c4", "alpaca"], default="wikitext2")
     parser.add_argument("--cal-nsamples", type=int, help="Number of samples of the calibration data to load.", default=128)
     parser.add_argument("--cal-batch-size", type=int, default=8, help="Batch size for loading the calibration data.")

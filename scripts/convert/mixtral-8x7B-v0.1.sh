@@ -1,6 +1,6 @@
-model_path=meta-llama/Llama-2-7b-hf
-save_path=outputs/llama2-7B-deepseek
-eval_batch_size=4
+model_path=mistralai/Mixtral-8x7B-v0.1
+save_path=outputs/mixtral-8x7B-deepseek
+eval_batch_size=8
 
 
 # 1. convert to deepseek-mla
@@ -12,5 +12,5 @@ python transmla/converter.py \
 
 
 # 2. copy modeling and configuration files
-cp transmla/transformers/llama/* $save_path/
+cp transmla/transformers/mixtral/* $save_path/
 cp transmla/transformers/mla.py $save_path/

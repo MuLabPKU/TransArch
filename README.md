@@ -89,17 +89,17 @@ python transmla/converter.py \
 - [x] Qwen2
 - [x] Gemma2
 - [x] Mistral
+- [x] Mixtral
 - [ ] MiMo
-- [ ] Mixtral
 
 
 # 📋 To-Do
 - [x] Publish the technical report for the new version, detailing how TransMLA is compatible with RoPE, supports the Absorb operation.
 - [x] Compress the dimensions of the KV cache to improve inference speed.
-- [ ] Release checkpoints.
 - [x] Add support for vLLM to improve inference speed.
 - [x] Support FlashMLA.
-- [ ] Extend support to additional models (e.g., LLaMA, Mistral, Gemma2, etc.).
+- [x] Extend support to additional models (e.g., LLaMA, Mistral, Gemma2, etc.).
+- [ ] Release checkpoints.
 - [ ] Fine-tune on R1 distillation datasets.
 
 
