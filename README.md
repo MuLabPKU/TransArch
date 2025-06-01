@@ -32,7 +32,7 @@ pip install -r requirements.txt
     # using `Transformers.AutoModelForCausalLM`
     import torch
     from transformers import AutoModelForCausalLM
-    model = AutoModelForCausalLM.from_pretrained("outputs/qwen2.5-7B-Instruct-deepseek", trust_remote_code=True)
+    model = AutoModelForCausalLM.from_pretrained("outputs/qwen2_5-7B-Instruct-deepseek", trust_remote_code=True)
     ```
 
 ## 🔧 Advanced Usage (`converter.py`)
