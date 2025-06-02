@@ -2,12 +2,9 @@ import argparse
 import os
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
-import json
-from typing import Union, Literal
-from copy import deepcopy
 
 from modify_config import modify_config
-from utils import get_dataset, prepare_dataloader, prepare_test_dataloader, evaluate_ppl, get_qkv_calibrate_outputs, statistics_qkv_rmsnorm
+from utils import get_dataset, prepare_dataloader, prepare_test_dataloader, evaluate_ppl
 from partial_rope import partial_rope
 from lora_qkv import low_rank_qkv
 
@@ -71,10 +68,10 @@ def main(args):
         print(f'Original ppl: {dataset_ppl:.4f}')
 
     ##############################
-    #        remove rope         #
+    #        partial rope        #
     ##############################
     print("\n" + "="*60)
-    print("Remove RoPE Model".center(60))
+    print("Partial RoPE Model".center(60))
     print("="*60 + "\n")
 
     if args.collapse == "auto":
@@ -85,7 +82,7 @@ def main(args):
     else:
         args.collapse = int(args.collapse)
 
-    model = remove_rope(model, tokenizer, train_loader, test_loader, **vars(args))
+    model = partial_rope(model, tokenizer, train_loader, test_loader, **vars(args))
     if args.freqfold == "auto":
         args.freqfold = model[1]
         model = model[0]
