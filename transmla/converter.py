@@ -9,7 +9,7 @@ from partial_rope import partial_rope
 from lora_qkv import low_rank_qkv
 
 
-def load_model_and_tokenizer(model_path: str):
+def load_model_and_tokenizer(args):
     model = AutoModelForCausalLM.from_pretrained(
         args.model_path,
         torch_dtype = torch.float16 if args.dtype == "fp16" else torch.bfloat16 if args.dtype == "bf16" else torch.float32,
@@ -57,8 +57,7 @@ def main(args):
     print("="*60 + "\n")
 
     # get model, tokenizer
-    model, tokenizer = load_model_and_tokenizer(args.model_path)
-    model_type = model.config.model_type
+    model, tokenizer = load_model_and_tokenizer(args)
     # get dataset
     train_loader, test_loader = get_dataset_loader(tokenizer, **vars(args))
 
@@ -75,7 +74,7 @@ def main(args):
     print("="*60 + "\n")
 
     if args.collapse == "auto":
-        head_dim = model.config.head_dim if hasattr(model.config, "head_dim") else model.config.hidden_size // model.config.num_attention_heads
+        head_dim = model.config.head_dim if hasattr(model.config, "head_dim") and model.config.head_dim is not None else model.config.hidden_size // model.config.num_attention_heads
         model.config.head_dim = head_dim
         args.collapse = head_dim // args.qk_mqa_dim
         print(f"Auto collapse: {args.collapse} (head_dim={head_dim} / qk_mqa_dim={args.qk_mqa_dim})")

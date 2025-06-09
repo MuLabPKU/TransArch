@@ -70,7 +70,7 @@ python transmla/converter.py \
 | --save-path | Output path for the converted model and tokenizer. |
 | --cal-dataset | Calibration dataset: wikitext2, ptb, c4, or alpaca. |
 | --cal-nsamples, --cal-max-seqlen, --cal-batch-size | Number, max sequence length, and batch size of samples used for calibration. |
-| --freqfold | RoPE frequency folding factor, or `auto` to search for the best value. |
+| --freqfold | RoPE frequency folding factor, or `auto` to search for the best value. Note: Automatic freqfold search is only supported in single-GPU setups currently. Please set the device explicitly, for example: `cuda:0`. |
 | --collapse | Collapse factor for RoPE. Use `auto` to compute as `head_dim // qk_mqa_dim`. Collapse factor reduces the dim of RoPEd KV cache from `head_dim` to `head_dim // collapse`. |
 | --qk-mqa-dim | Target dimension for decoupled RoPE. |
 | --q-lora-rank | The inner dimension for query low-rank decomposition, or `None` to disable low-rank decomposition for query. |
@@ -84,14 +84,24 @@ python transmla/converter.py \
 
 # 🐒 Model Zoo
 
-- [x] Llama2
-- [x] Llama3
-- [x] Qwen2
-- [x] Gemma2
-- [x] Mistral
-- [x] Mixtral
-- [ ] MiMo
-- [ ] Dots.LLM1
+| Model Family | Model | kv-lora-rank + qk-mqa-dim | freqfold | Original ppl | Partial RoPE ppl | MLA ppl |
+| - | - | - | - | - | - | - |
+| Llama2    | Llama-2-7B            | 512 + 64   | 8 | 5.4735 | 18.6373 | 41.6135 |
+|           |                       | 448 + 128  | 8 |        | 8.9903  | 25.7731 |
+| Llama3    | Llama-3-8B            | 512 + 64   | 4 | 6.1371 | 12.0550 | 25.8047 |
+|           |                       | 448 + 128  | 4 |        | 8.3997  | 18.3500 |
+|           | Llama-3.2-1B          | 512 + 64   | 4 | 9.7531 | 16.3391 | 16.1404 |
+| Qwen2     | Qwen2.5-7B-Instruct   | 512 + 64   | 4 | 8.3541 | 8.8902  | 9.4936  |
+|           |                       | 448 + 128  | 4 |        | 8.0734  | 8.6654  |
+|           | Qwen2.5-72B-Instruct  | 512 + 64   | 4 | 4.2687 | 4.9650  | 6.5200  |
+|           |                       | 448 + 128  | 2 |        | 4.6854  | 6.5487  |
+| Gemma2    | gemma-2-9b-it         | 512 + 64   | 8 | 10.1612| 11.4207 | 21.6260 |1
+|           |                       | 448 + 128  | 8 |        | 10.9948 | 22.0038 |
+|           |                       | 320 + 256  | 4 |        | 10.7075 | 32.4387 |
+| Mistral   | Mistral-7B-v0.3       | 512 + 64   | 8 | 5.3178 | 7.4697  | 9.5830  |
+|           |                       | 448 + 128  | 8 |        | 5.5915  | 7.0251  |
+| Mixtral   | Mixtral-8x7B-v0.1     | 512 + 64   | 8 | 3.8422 | 5.6310  | 7.5179  |
+|           |                       | 448 + 128  | 4 |        | 4.1407  | 5.8374  |
 
 
 # 📋 To-Do
