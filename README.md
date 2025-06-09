@@ -100,7 +100,7 @@ python transmla/converter.py \
 - [x] Add support for vLLM to improve inference speed.
 - [x] Support FlashMLA.
 - [x] Extend support to additional models (e.g., LLaMA, Mistral, Gemma2, etc.).
-- [x] Support GTA & GLA
+- [ ] Support GTA & GLA
 - [ ] Release checkpoints.
 - [ ] Fine-tune on R1 distillation datasets.
 
