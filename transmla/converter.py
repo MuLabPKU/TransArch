@@ -116,7 +116,7 @@ if __name__ == "__main__":
     parser.add_argument("--cal-batch-size", type=int, default=8, help="Batch size for loading the calibration data.")
     parser.add_argument("--cal-max-seqlen", type=int, default=256, help="Maximum sequence length for the calibration data.")
     parser.add_argument("--seed", type=int, default=42, help="Seed for sampling the calibration data.")
-    parser.add_argument("--ppl-eval-batch-size", type=int, default=0, help="Batch size for evaluating the perplexity.")
+    parser.add_argument("--ppl-eval-batch-size", type=int, default=2, help="Batch size for evaluating the perplexity.")
     parser.add_argument("--freqfold", type=str, default="auto", help="Freqfold for removing RoPE, int or auto")
     parser.add_argument("--collapse", type=str, default="auto", help="Collapse for removing RoPE, int or auto")
     parser.add_argument("--qk-mqa-dim", type=int, default=64, help="")
