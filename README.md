@@ -33,6 +33,12 @@ pip install -r requirements.txt
     import torch
     from transformers import AutoModelForCausalLM
     model = AutoModelForCausalLM.from_pretrained("outputs/qwen2_5-7B-Instruct-deepseek", trust_remote_code=True)
+
+    # using `vllm.LLM`
+    # note that only Llama-type models(llama, qwen, mistral) are supported right now
+    import transmla.vllm_registry.deepseek      # register mla models
+    from vllm import LLM, SamplingParams
+    llm = LLM(model="outputs/qwen2_5-7B-Instruct-deepseek", trust_remote_code=True)
     ```
 
 ## 🔧 Advanced Usage (`converter.py`)
