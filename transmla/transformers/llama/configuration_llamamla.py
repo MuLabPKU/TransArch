@@ -11,8 +11,7 @@ class LlamaMLAConfig(LlamaConfig):
         qk_rope_head_dim=64,
         qk_nope_head_dim=128,
         v_head_dim=128,
-        query_pre_attn_scalar=128,
-        softcap=None,
+        qk_latent_layernorm=True,
         **kwargs
     ):
         super().__init__(*args, **kwargs)
@@ -23,5 +22,4 @@ class LlamaMLAConfig(LlamaConfig):
         self.qk_nope_head_dim = qk_nope_head_dim
         self.qk_head_dim = qk_rope_head_dim + qk_nope_head_dim
         self.v_head_dim = v_head_dim
-        self.query_pre_attn_scalar = query_pre_attn_scalar
-        self.softcap = softcap
+        self.qk_latent_layernorm = qk_latent_layernorm

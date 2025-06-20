@@ -1,39 +1,12 @@
 import torch
 import torch.nn as nn
-import math
 from typing import Optional, Tuple
-import torch.nn.functional as F
+
 from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
+from transformers.models.deepseek_v3.modeling_deepseek_v3 import apply_rotary_pos_emb_interleave
 
 from utils import pca_calc, get_qkv_calibrate_outputs, evaluate_ppl, statistics_qkv_rmsnorm
 
-def rotate_half(x):
-    x1 = x[..., : x.shape[-1] // 2]
-    x2 = x[..., x.shape[-1] // 2 :]
-    return torch.cat((-x2, x1), dim=-1)
-
-# def apply_rotary_pos_emb(q, k, cos, sin, unsqueeze_dim=1):
-#     cos = cos.unsqueeze(unsqueeze_dim)
-#     sin = sin.unsqueeze(unsqueeze_dim)
-#     q_embed = (q * cos) + (rotate_half(q) * sin)
-#     k_embed = (k * cos) + (rotate_half(k) * sin)
-#     return q_embed, k_embed
-
-# Copied from transformers.models.llama.modeling_llama.apply_rotary_pos_emb
-def apply_rotary_pos_emb(q, k, cos, sin,unsqueeze_dim=1):
-
-    cos = cos.unsqueeze(unsqueeze_dim)
-    sin = sin.unsqueeze(unsqueeze_dim)
-
-    b, h, s, d = q.shape
-    q = q.view(b, h, s, d // 2, 2).transpose(4, 3).reshape(b, h, s, d)
-
-    b, h, s, d = k.shape
-    k = k.view(b, h, s, d // 2, 2).transpose(4, 3).reshape(b, h, s, d)
-
-    q_embed = (q * cos) + (rotate_half(q) * sin)
-    k_embed = (k * cos) + (rotate_half(k) * sin)
-    return q_embed, k_embed
  
 def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     batch, num_key_value_heads, slen, head_dim = hidden_states.shape
@@ -48,14 +21,14 @@ class LoraQKV(nn.Module):
     def __init__(
         self, 
         self_attn, 
-        query_outputs=None, 
-        key_outputs=None, 
-        value_outputs=None, 
-        q_lora_rank=None, 
+        query_outputs, 
+        key_outputs, 
+        value_outputs, 
+        q_lora_rank=None,
         qk_mqa_dim=64, 
         collapse=1,
         kv_lora_rank=896,
-        use_qkv_norm=None, 
+        use_qkv_norm=False, 
         balance_kv_ratio=None, 
         rms_norm_eps=1e-6,
     ):
@@ -66,7 +39,6 @@ class LoraQKV(nn.Module):
         self.dtype = self_attn.q_proj.weight.dtype
         self.layer_idx = self_attn.layer_idx
         self.num_attention_heads = self_attn.num_attention_heads
-        self.num_key_value_heads = self_attn.num_key_value_heads
         self.head_dim = self_attn.head_dim
         self.qk_mqa_dim = qk_mqa_dim
         self.collapse = collapse
@@ -79,7 +51,6 @@ class LoraQKV(nn.Module):
 
         self.attention_function = ALL_ATTENTION_FUNCTIONS["sdpa"]
         self.scaling = (self.head_dim + self.qk_mqa_dim)**(-0.5)
-        # self.scaling = self.head_dim**(-0.5)
 
         # -----------------Attributes for the bias-----------------
         q_bias = self_attn.q_proj.bias is not None
@@ -94,43 +65,43 @@ class LoraQKV(nn.Module):
             self.q_a_proj = nn.Linear(
                 self.hidden_size, 
                 q_lora_rank, 
-                bias=self.attention_bias,
-                device = self_attn.q_proj.weight.device,
-                dtype = self.dtype,
+                bias=False,
+                device=self_attn.q_proj.weight.device,
+                dtype=self.dtype,
             )
             if use_qkv_norm:
                 self.q_a_layernorm = nn.RMSNorm(q_lora_rank, device=self_attn.q_proj.weight.device, dtype=self.dtype, eps=rms_norm_eps)
             self.q_b_proj = nn.Linear(
                 q_lora_rank,
                 self.num_attention_heads * (self.qk_mqa_dim + self.head_dim), 
-                bias=None,
-                device = self_attn.q_proj.weight.device,
-                dtype = self.dtype,
+                bias=self.attention_bias,
+                device=self_attn.q_proj.weight.device,
+                dtype=self.dtype,
             )
         else:
             self.q_proj = nn.Linear(
                 self.hidden_size, 
                 self.num_attention_heads * (self.qk_mqa_dim + self.head_dim), 
                 bias=self.attention_bias,
-                device = self_attn.q_proj.weight.device,
-                dtype = self.dtype,
+                device=self_attn.q_proj.weight.device,
+                dtype=self.dtype,
             )
         # kv_a_proj & kv_b_proj
         self.kv_a_proj_with_mqa = nn.Linear(
             self.hidden_size,
             kv_lora_rank + qk_mqa_dim,
             bias=self.attention_bias,
-            device = self_attn.k_proj.weight.device,
-            dtype = self.dtype,
+            device=self_attn.k_proj.weight.device,
+            dtype=self.dtype,
         )
         if use_qkv_norm:
             self.kv_a_layernorm = nn.RMSNorm(kv_lora_rank, device=self_attn.k_proj.weight.device, dtype=self.dtype, eps=rms_norm_eps)
         self.kv_b_proj = nn.Linear(
             kv_lora_rank,
             self.num_attention_heads * self.head_dim * 2,
-            bias=None,
-            device = self_attn.k_proj.weight.device,
-            dtype = self.dtype,
+            bias=False,
+            device=self_attn.k_proj.weight.device,
+            dtype=self.dtype,
         )
         # nothing else to do for o_proj
         self.o_proj = self_attn.o_proj
@@ -164,68 +135,57 @@ class LoraQKV(nn.Module):
         k_b_rope_weight, k_b_nope_weight = self_attn.k_up_proj.weight.data.split([self.qk_mqa_dim, self.latent_dim - self.qk_mqa_dim], dim=1)
         k_b_rope_weight = k_b_rope_weight.view(self.num_attention_heads, self.head_dim, self.qk_mqa_dim)
         k_b_nope_weight = k_b_nope_weight.view(self.num_attention_heads, self.head_dim, self.latent_dim-self.qk_mqa_dim)
-        if self.attention_bias:
-            k_bias_rope, k_bias_nope = self_attn.k_proj.bias.data.split([self.qk_mqa_dim, self.latent_dim - self.qk_mqa_dim], dim=0)
         
         v_a_nope_weight  = self_attn.v_proj.weight.data
         v_b_nope_weight = self_attn.v_up_proj.weight.data
         v_b_nope_weight = v_b_nope_weight.view(self.num_attention_heads, self.head_dim, self.latent_dim)
-        # if self.attention_bias:
-        #     v_bias = self_attn.v_proj.bias.data
-        # else:
-        #     v_bias = None
 
-        # if self.attention_bias:
-        #     q_bias = self_attn.q_proj.bias.data
-        # else:
-        #     q_bias = None
+        if self.attention_bias:
+            q_bias = self_attn.q_proj.bias.data
+            v_bias = self_attn.v_proj.bias.data
+            k_bias_rope, k_bias_nope = self_attn.k_proj.bias.data.split([self.qk_mqa_dim, self.latent_dim - self.qk_mqa_dim], dim=0)
 
 
         # 1. Initialize q_a_proj / q_b_proj if q_lora_rank is not None (revised by xiaojuan based on bias...)
         # 1.1 Initialize q_a_proj
+        original_scaling = getattr(self.config, "query_pre_attn_scalar", self.head_dim)**-0.5
+        scaling = original_scaling / self.scaling
         if self.q_lora_rank is not None:
-            q_a_weight = (R_q.T @ self_attn.q_proj.weight.data.to(torch.float64))[: self.q_lora_rank].to(self.dtype)
+            q_weight = self_attn.q_proj.weight.data.to(torch.float64)
+
+            q_a_weight = (R_q.T @ q_weight)[: self.q_lora_rank].to(self.dtype)
+            self.q_a_proj.weight.data = q_a_weight.contiguous()
+            
             q_b_weight = R_q[:, :self.q_lora_rank].to(self.dtype)
             q_b_weight = q_b_weight.view(self.num_attention_heads, self.head_dim, self.q_lora_rank)
-            assert self.q_a_proj.weight.data.shape == q_a_weight.shape
-            self.q_a_proj.weight.data = q_a_weight.contiguous()
-
-        # 1.2 Initialize q_b_proj
-        if self.q_lora_rank is not None:
             # Absorb the rope part of k_b_proj into q_b_proj
             q_b_rope_weight = torch.einsum("hdq,hdk->hkq", q_b_weight, k_b_rope_weight)
             q_b_with_mqa_weight = torch.cat([q_b_weight, q_b_rope_weight], dim=1).reshape(
                 self.num_attention_heads * (self.head_dim + self.qk_mqa_dim), self.q_lora_rank
             )
 
-            # Scale the weight before initializing the q_b_proj
+            # Scale the weight before initializing the q_b_projAdd commentMore actions
             # In the original GQA, attention scores are divided by sqrt(head_dim).
             # However, in the transformed MLA, the attention scores are divided by sqrt(head_dim + qk_mqa_dim).
-            assert self.q_b_proj.weight.data.shape == q_b_with_mqa_weight.shape
-            self.q_b_proj.weight.data = q_b_with_mqa_weight.contiguous() * math.sqrt(self.head_dim + self.qk_mqa_dim) / math.sqrt(self.head_dim)
-            
-            # Considering the bias
-            if self.attention_bias:
-                q_b_bias = q_bias.reshape(self.num_attention_heads, self.head_dim)
-                q_b_rope_bias = torch.einsum("hd,hdk->hk", q_b_bias, k_b_rope_weight)
-                q_b_with_mqa_bias = torch.cat([q_b_bias, q_b_rope_bias], dim=1).flatten()
-                assert self.q_b_proj.bias.data.shape == q_b_with_mqa_bias.shape
-                self.q_b_proj.bias.data = q_b_with_mqa_bias.contiguous() * math.sqrt(self.head_dim+self.qk_mqa_dim) / math.sqrt(self.head_dim)
+            self.q_b_proj.weight.data = q_b_with_mqa_weight.contiguous() * scaling
+
         else:
             q_weight = self_attn.q_proj.weight.data.view(self.num_attention_heads, self.head_dim, self.hidden_size)
             q_rope_weight = torch.einsum("hdD,hdk->hkD", q_weight, k_b_rope_weight) 
             q_with_mqa_weight = torch.cat([q_weight, q_rope_weight], dim=1).reshape(
                 self.num_attention_heads * (self.head_dim + self.qk_mqa_dim), self.hidden_size
             )
-            assert self.q_proj.weight.data.shape == q_with_mqa_weight.shape
-            self.q_proj.weight.data = q_with_mqa_weight.contiguous() * math.sqrt(self.head_dim+self.qk_mqa_dim) / math.sqrt(self.head_dim)
+            
+            self.q_proj.weight.data = q_with_mqa_weight.contiguous() * scaling
 
-            if self.attention_bias:
-                q_bias = q_bias.reshape(self.num_attention_heads, self.head_dim)
-                q_rope_bias = torch.einsum("hd,hdk->hk", q_bias.to(torch.float64), k_b_rope_weight.to(torch.float64)).to(self.dtype)
-                q_bias = torch.cat([q_bias, q_rope_bias], dim=1).flatten()
-                assert self.q_proj.bias.data.shape == q_bias.shape
-                self.q_proj.bias.data = q_bias.contiguous() * math.sqrt(self.head_dim+self.qk_mqa_dim) / math.sqrt(self.head_dim)
+        if self.attention_bias:
+            q_bias = q_bias.reshape(self.num_attention_heads, self.head_dim)
+            q_rope_bias = torch.einsum("hd,hdk->hk", q_bias.to(torch.float64), k_b_rope_weight.to(torch.float64)).to(self.dtype)
+            q_bias = torch.cat([q_bias, q_rope_bias], dim=1).flatten().contiguous() * scaling
+            if self.q_lora_rank is not None:
+                self.q_b_proj.bias.data = q_bias
+            else:
+                self.q_proj.bias.data = q_bias
             
         
         # 2. Low-rank decomposing k_proj and v_proj
@@ -289,7 +249,7 @@ class LoraQKV(nn.Module):
         k_rope = k_rope.view(bsz, 1, q_len, self.qk_mqa_dim)
 
         cos, sin = position_embeddings
-        q_rope, k_rope = apply_rotary_pos_emb(q_rope, k_rope, cos[ :, :, : : self.collapse], sin[ :, :, : : self.collapse])
+        q_rope, k_rope = apply_rotary_pos_emb_interleave(q_rope, k_rope, cos[ :, :, : : self.collapse], sin[ :, :, : : self.collapse])
         query_states = torch.cat([q_nope, q_rope], dim=-1)
 
         if hasattr(self, "kv_a_layernorm"):
@@ -306,6 +266,7 @@ class LoraQKV(nn.Module):
             attention_mask,
             dropout=0.0 if not self.training else self.attention_dropout,
             scaling=self.scaling,
+            softcap=getattr(self.config, "attn_logit_softcapping", None)
         )
 
         attn_output = attn_output.reshape(bsz, q_len, -1).contiguous()

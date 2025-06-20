@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-import math
 from copy import deepcopy
 from typing import Optional, Tuple
 from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
@@ -15,7 +14,6 @@ def rotate_half(x, group):
         rotate_x.append(x[..., i * dh : i * dh + dh // 2])
     return torch.cat(rotate_x, dim=-1)
 
-
 def apply_rotary_pos_emb(q, k, cos, sin, rope_head=1):
     rope_dim = cos.shape[-1] * rope_head
     nope_dim = q.shape[-1] - rope_dim
@@ -25,18 +23,18 @@ def apply_rotary_pos_emb(q, k, cos, sin, rope_head=1):
     cos = cos.unsqueeze(1)
     sin = sin.unsqueeze(1)
 
-    ###### this is for rotate-specific deepseek model (rotate not chunk but interveal) #########
+    ###### this is for rotate-specific deepseek model (rotate not chunk but interval) #########
     b, h, s, d = q_rope.shape
     q_rope = q_rope.view(b, h, s, d // 2, 2).transpose(3, 4).reshape(b, h, s, d)
-    ###### this is for rotate-specific deepseek model (rotate not chunk but interveal) #########
+    ###### this is for rotate-specific deepseek model (rotate not chunk but interval) #########
 
     rope_repeat = q_rope.shape[-1] // cos.shape[-1]
     q_rope_embed = q_rope * cos.repeat(1,1,1,rope_repeat) + rotate_half(q_rope, rope_repeat) * sin.repeat(1,1,1,rope_repeat)
 
-    ###### this is for rotate-specific deepseek model (rotate not chunk but interveal) #########
+    ###### this is for rotate-specific deepseek model (rotate not chunk but interval) #########
     b, h, s, d = k_rope.shape
     k_rope = k_rope.view(b, h, s, d // 2, 2).transpose(3, 4).reshape(b, h, s, d)
-    ###### this is for rotate-specific deepseek model (rotate not chunk but interveal) #########
+    ###### this is for rotate-specific deepseek model (rotate not chunk but interval) #########
 
     rope_repeat = k_rope.shape[-1] // cos.shape[-1]
     k_rope_embed = k_rope * cos.repeat(1,1,1,rope_repeat) + rotate_half(k_rope, rope_repeat) * sin.repeat(1,1,1,rope_repeat)
@@ -66,13 +64,13 @@ class PartialRope(nn.Module):
         self.k_proj = self_attn.k_proj
         self.v_proj = self_attn.v_proj
         self.o_proj = self_attn.o_proj
-        self.__insert_kv_up_proj__()
+        self._insert_kv_up_proj()
         if key_outputs is not None:
             Rk = self.joint_complex_pca(key_outputs, freqfold)
             self.rotate_k_proj(Rk, freqfold=freqfold)
             self.rotate_k_up_proj(Rk, freqfold=freqfold)
             
-    def __insert_kv_up_proj__(self):
+    def _insert_kv_up_proj(self):
         self.k_up_proj = nn.Linear(self.latent_dim, self.hidden_size, bias=False, dtype=self.k_proj.weight.dtype, device=self.k_proj.weight.device)
         self.v_up_proj = nn.Linear(self.latent_dim, self.hidden_size, bias=False, dtype=self.v_proj.weight.dtype, device=self.v_proj.weight.device)
         kv_groups = self.num_attention_heads // self.num_key_value_heads
@@ -115,10 +113,9 @@ class PartialRope(nn.Module):
         k_weight = k_weight.reshape(self.num_key_value_heads, self.head_dim//freqfold, freqfold//self.collapse, self.collapse, -1)
         k_weight = k_weight.permute(3, 0, 2, 1, 4).reshape(self.num_key_value_heads*freqfold, self.head_dim//freqfold, -1)
         k_weight = torch.einsum("dhc,hdD->cdD", U, k_weight)
-        # k_weight = k_weight.reshape(self.collapse, self.num_key_value_heads, freqfold//self.collapse, self.head_dim//freqfold, -1)
-        
-        k_weight = k_weight.reshape(self.collapse, self.num_key_value_heads, freqfold//self.collapse, 2, self.head_dim//freqfold // 2, -1)
 
+        # premute the dimensions to align with deepseek's implementation
+        k_weight = k_weight.reshape(self.collapse, self.num_key_value_heads, freqfold//self.collapse, 2, self.head_dim//freqfold // 2, -1)
         k_weight = k_weight.permute(0, 1, 4, 2, 3, 5).reshape(self.num_key_value_heads, self.head_dim, -1)
 
         if self.k_proj.bias is not None:
@@ -126,7 +123,6 @@ class PartialRope(nn.Module):
             k_weight = k_weight[:, :, :-1]
 
             self.k_proj.bias.data = k_bias.flatten().contiguous()
-        assert self.k_proj.weight.data.shape == (self.latent_dim, self.hidden_size)
         self.k_proj.weight.data = k_weight.reshape(self.latent_dim, self.hidden_size).contiguous()
         
     def rotate_k_up_proj(self, U, freqfold=1):
@@ -135,9 +131,10 @@ class PartialRope(nn.Module):
         k_up_weight = k_up_weight.reshape(-1, self.num_key_value_heads, self.head_dim//freqfold, freqfold//self.collapse, self.collapse)
         k_up_weight = k_up_weight.permute(0, 4, 1, 3, 2).reshape(-1, self.num_key_value_heads*freqfold, self.head_dim//freqfold)
         k_up_weight = torch.einsum("dhc,Dhd->Dcd", U, k_up_weight)
+
+        # same, premute the dimensions to align with deepseek's implementation
         k_up_weight = k_up_weight.reshape(-1, self.collapse, self.num_key_value_heads, freqfold//self.collapse, 2, self.head_dim//freqfold//2)
         k_up_weight = k_up_weight.permute(0, 1, 2, 5, 3, 4).reshape(-1, self.latent_dim)
-        # assert self.k_up_proj.weight.data.shape == (self.hidden_size, self.latent_dim)
 
         self.k_up_proj.weight.data = k_up_weight.contiguous()
   
@@ -185,6 +182,7 @@ class PartialRope(nn.Module):
             attention_mask,
             dropout=0.0 if not self.training else self.attention_dropout,
             scaling=self.scaling,
+            softcap=getattr(self.config, "attn_logit_softcapping", None)
         )
 
         attn_output = attn_output.reshape(bsz, q_len, -1).contiguous()

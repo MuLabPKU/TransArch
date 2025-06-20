@@ -10,9 +10,12 @@ from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
 from transformers.processing_utils import Unpack
 
 from transformers.models.gemma2.modeling_gemma2 import (
-    apply_rotary_pos_emb,
-    eager_attention_forward,
+    eager_attention_forward,    # for supporting softcap
     logger
+)
+from transformers.models.deepseek_v3.modeling_deepseek_v3 import (
+    apply_rotary_pos_emb_interleave,
+    DeepseekV3RMSNorm
 )
 
 
@@ -37,20 +40,25 @@ class MLAAttention(nn.Module):
         self.qk_nope_head_dim = config.qk_nope_head_dim
         self.v_head_dim = config.v_head_dim
         self.qk_head_dim = config.qk_head_dim
-        self.softcap = config.softcap
+
+        self.qk_latent_layernorm = getattr(config, "qk_latent_layernorm", True)
         
         self.is_causal = True
         if self.q_lora_rank is None:
             self.q_proj = nn.Linear(config.hidden_size, self.num_heads * self.qk_head_dim, bias=config.attention_bias)
         else:
-            self.q_a_proj = nn.Linear(config.hidden_size, config.q_lora_rank, bias=config.attention_bias)
-            self.q_b_proj = nn.Linear(config.q_lora_rank, self.num_heads * self.qk_head_dim, bias=False)
+            self.q_a_proj = nn.Linear(config.hidden_size, config.q_lora_rank, bias=False)
+            if self.qk_latent_layernorm:
+                self.q_a_layernorm = DeepseekV3RMSNorm(self.q_lora_rank)
+            self.q_b_proj = nn.Linear(config.q_lora_rank, self.num_heads * self.qk_head_dim, bias=config.attention_bias)
 
         self.kv_a_proj_with_mqa = nn.Linear(
             config.hidden_size,
             self.kv_lora_rank + self.qk_rope_head_dim,
             bias=config.attention_bias,
         )
+        if self.qk_latent_layernorm:
+            self.kv_a_layernorm = DeepseekV3RMSNorm(self.kv_lora_rank)
         self.kv_b_proj = nn.Linear(
             self.kv_lora_rank,
             self.num_heads * (self.qk_nope_head_dim + self.v_head_dim),
@@ -63,7 +71,7 @@ class MLAAttention(nn.Module):
             bias=False,
         )
 
-        self.scaling = self.config.query_pre_attn_scalar ** (-0.5)
+        self.scaling = self.qk_head_dim**-0.5
 
     def forward(
         self,
@@ -77,22 +85,29 @@ class MLAAttention(nn.Module):
         batch_size, seq_length = hidden_states.shape[:-1]
         query_shape = (batch_size, seq_length, -1, self.qk_head_dim)
         key_shape = (batch_size, seq_length, -1, self.qk_nope_head_dim + self.v_head_dim)
+
         if self.q_lora_rank is None:
             q_states = self.q_proj(hidden_states)
+        elif self.qk_latent_layernorm:
+            q_states = self.q_b_proj(self.q_a_layernorm(self.q_a_proj(hidden_states)))
         else:
             q_states = self.q_b_proj(self.q_a_proj(hidden_states))
         q_states = q_states.view(query_shape).transpose(1, 2)
         q_pass, q_rot = torch.split(q_states, [self.qk_nope_head_dim, self.qk_rope_head_dim], dim=-1)
+
         compressed_kv = self.kv_a_proj_with_mqa(hidden_states)
         k_pass, k_rot = torch.split(compressed_kv, [self.kv_lora_rank, self.qk_rope_head_dim], dim=-1)
 
-        k_pass = self.kv_b_proj(k_pass).view(key_shape).transpose(1, 2)
+        if self.qk_latent_layernorm:
+            k_pass = self.kv_b_proj(self.kv_a_layernorm(k_pass)).view(key_shape).transpose(1, 2)
+        else:
+            k_pass = self.kv_b_proj(k_pass).view(key_shape).transpose(1, 2)
         k_pass, value_states = torch.split(k_pass, [self.qk_nope_head_dim, self.v_head_dim], dim=-1)
 
         k_rot = k_rot.view(batch_size, 1, seq_length, self.qk_rope_head_dim)
 
         cos, sin = position_embeddings
-        q_rot, k_rot = apply_rotary_pos_emb(q_rot, k_rot, cos, sin)
+        q_rot, k_rot = apply_rotary_pos_emb_interleave(q_rot, k_rot, cos, sin)
         k_rot = k_rot.expand(*k_pass.shape[:-1], -1)
 
         query_states = torch.cat((q_pass, q_rot), dim=-1)
@@ -124,7 +139,7 @@ class MLAAttention(nn.Module):
             attention_mask,
             dropout=0.0 if not self.training else self.attention_dropout,
             scaling=self.scaling,
-            softcap=self.softcap,
+            softcap=getattr(self.config, "attn_logit_softcapping", None),
             **kwargs,
         )
         if self.config._attn_implementation == "flash_attention_2" and self.qk_head_dim != self.v_head_dim:
