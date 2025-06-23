@@ -79,7 +79,7 @@ class DataCollatorWithFlattening(transformers.DefaultDataCollator):
 class TrainingArguments(transformers.TrainingArguments):
     model_name_or_path: Optional[str] = field(default="meta-llama/Meta-Llama-3-8B")
     data_path: str = field(default=None, metadata={"help": "Path to the training data."})
-    attn_implementation : Optional[str] = field(default="flash_attention_2")
+    attn_implementation : Optional[str] = field(default="sdpa")
     seq_len: int = field(default=2048,metadata={"help": "Maximum sequence length. Sequences will be right padded (and possibly truncated)."},)
 
 parser = transformers.HfArgumentParser(TrainingArguments)

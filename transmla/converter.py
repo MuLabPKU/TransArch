@@ -24,6 +24,8 @@ def load_model_and_tokenizer(args):
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
+    assert model.config.model_type in ["llama", "qwen2", "mistral"] or not args.deepseek_style
+
     return model, tokenizer
 
 
@@ -124,6 +126,7 @@ if __name__ == "__main__":
     parser.add_argument("--kv-lora-rank", type=int, default=512, help="")
     parser.add_argument("--balance-kv-ratio", type=float, default=1, help="")
     parser.add_argument("--use-qkv-norm", action='store_true', default=False, help="")
+    parser.add_argument("--deepseek-style", action='store_true', default=False, help="Use deepseek style modeling / configuration files from transformers.")
     args = parser.parse_args()
 
     main(args)

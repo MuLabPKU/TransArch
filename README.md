@@ -81,6 +81,7 @@ python transmla/converter.py \
 | --qk-mqa-dim | Target dimension for decoupled RoPE. |
 | --q-lora-rank | The inner dimension for query low-rank decomposition, or `None` to disable low-rank decomposition for query. |
 | --kv-lora-rank | The inner dimension for key/value joint low-rank decomposition. |
+| --deepseek-style | Use deepseek style modeling / configuration files from transformers. Only support Llama-type models(llama, qwen, mistral)
 
 
 ### 🧠 Tips
