@@ -40,6 +40,7 @@ settings = {
 }
 settings["qwen2"] = settings["llama"]
 settings["mistral"] = settings["llama"]
+settings["mimo"] = settings["llama"]
 
 transformers_dirs = {
     "llama": "transmla/transformers/llama", 

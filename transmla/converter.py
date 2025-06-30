@@ -14,7 +14,7 @@ def load_model_and_tokenizer(args):
         args.model_path,
         torch_dtype = torch.float16 if args.dtype == "fp16" else torch.bfloat16 if args.dtype == "bf16" else torch.float32,
         device_map=args.device,
-        _attn_implementation="eager",
+        _attn_implementation="sdpa",
         trust_remote_code=True,
     )
     tokenizer = AutoTokenizer.from_pretrained(
@@ -24,7 +24,7 @@ def load_model_and_tokenizer(args):
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    assert model.config.model_type in ["llama", "qwen2", "mistral"] or not args.deepseek_style
+    assert model.config.model_type in ["llama", "qwen2", "mistral", "mimo"] or not args.deepseek_style
 
     return model, tokenizer
 
