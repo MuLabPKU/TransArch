@@ -15,7 +15,8 @@ def rotate_half(x, group):
     return torch.cat(rotate_x, dim=-1)
 
 def apply_rotary_pos_emb(q, k, cos, sin, rope_head=1):
-    rope_dim = cos.shape[-1] * rope_head
+    head_dim = cos.shape[-1]
+    rope_dim = head_dim * rope_head
     nope_dim = q.shape[-1] - rope_dim
     q_rope, q_nope = q.split([rope_dim, nope_dim], dim=-1)
     k_rope, k_nope = k.split([rope_dim, nope_dim], dim=-1)
@@ -25,7 +26,7 @@ def apply_rotary_pos_emb(q, k, cos, sin, rope_head=1):
 
     ###### this is for rotate-specific deepseek model (rotate not chunk but interval) #########
     b, h, s, d = q_rope.shape
-    q_rope = q_rope.view(b, h, s, d // 2, 2).transpose(3, 4).reshape(b, h, s, d)
+    q_rope = q_rope.view(b, h, s, d // head_dim, head_dim // 2, 2).transpose(4, 5).reshape(b, h, s, d)
     ###### this is for rotate-specific deepseek model (rotate not chunk but interval) #########
 
     rope_repeat = q_rope.shape[-1] // cos.shape[-1]
@@ -33,7 +34,7 @@ def apply_rotary_pos_emb(q, k, cos, sin, rope_head=1):
 
     ###### this is for rotate-specific deepseek model (rotate not chunk but interval) #########
     b, h, s, d = k_rope.shape
-    k_rope = k_rope.view(b, h, s, d // 2, 2).transpose(3, 4).reshape(b, h, s, d)
+    k_rope = k_rope.view(b, h, s, d // head_dim, head_dim // 2, 2).transpose(4, 5).reshape(b, h, s, d)
     ###### this is for rotate-specific deepseek model (rotate not chunk but interval) #########
 
     rope_repeat = k_rope.shape[-1] // cos.shape[-1]
