@@ -387,6 +387,7 @@ class DeepseekV2DecoderLayer(nn.Module):
         )
         if (getattr(config, "n_routed_experts", None)
                 and layer_idx >= config.first_k_dense_replace
+                and hasattr(config, "moe_layer_freq")
                 and layer_idx % config.moe_layer_freq == 0):
             self.mlp = DeepseekV2MoE(
                 config=config,
