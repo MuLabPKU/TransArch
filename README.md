@@ -6,11 +6,12 @@ Despite the success of DeepSeek V2/V3/R1, most model vendors have heavily invest
 
 
 # 📰 News
-- [2025.05.29] A new version of technical report is released: [https://arxiv.org/abs/2502.07864](https://arxiv.org/abs/2502.07864).
-- [2025.04.28] Released TransMLA v3, successfully apply PCA across RoPE and reduce KV Cache.
-- [2025.02.16] Released the second version of the TransMLA model and usage code, compatible with RoPE and supporting Absorb operation.
-- [2025.02.13] The technical report of TransMLA is publicly available: [https://huggingface.co/papers/2502.07864](https://huggingface.co/papers/2502.07864)
-- [2025.01.02] Released the first version of the TransMLA model code, providing usage code for converting Qwen2.5 and LLaMA-3’s GQA to MLA equivalence.
+- [2026.02] 🎉 TransMLA is adopted by Ant Group's latest 1T model [Ling-2.5-1T](https://huggingface.co/inclusionAI/Ling-2.5-1T)! This demonstrates the robust scalability of TransMLA in ultra-large-scale LLMs.
+- [2025.05] A new version of technical report is released: [https://arxiv.org/abs/2502.07864](https://arxiv.org/abs/2502.07864).
+- [2025.04] Released TransMLA v3, successfully apply PCA across RoPE and reduce KV Cache.
+- [2025.02] Released the second version of the TransMLA model and usage code, compatible with RoPE and supporting Absorb operation.
+- [2025.02] The technical report of TransMLA is publicly available: [https://huggingface.co/papers/2502.07864](https://huggingface.co/papers/2502.07864)
+- [2025.01] Released the first version of the TransMLA model code, providing usage code for converting Qwen2.5 and LLaMA-3’s GQA to MLA equivalence.
 
 # 🛠 Installation
 ```
