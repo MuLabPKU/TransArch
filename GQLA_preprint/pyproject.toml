@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gqla"
+version = "0.0.1"
+description = "MLA -> GQLA conversion via per-group K/V PCA + absorption (GLM-4.7-Flash)."
+requires-python = ">=3.10"
+
+[project.entry-points."vllm.general_plugins"]
+register_gqla = "src.vllm_register:register"
+
+[tool.setuptools]
+packages = ["src"]

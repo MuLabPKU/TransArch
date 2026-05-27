@@ -15,6 +15,7 @@ Modern large language models are increasingly bottlenecked by communication rath
 
 ## 📰 News
 
+- [2026.05] GQLA code released: see [GQLA_preprint/](GQLA_preprint/).
 - [2026.05] GQLA preprint released: [arXiv:2605.15250](https://arxiv.org/abs/2605.15250).
 - [2026.05] MISA preprint released: [arXiv:2605.07363](https://arxiv.org/abs/2605.07363).
 - [2026.03] HISA preprint released: [arXiv:2603.28458](https://arxiv.org/abs/2603.28458).
@@ -28,7 +29,6 @@ Modern large language models are increasingly bottlenecked by communication rath
 - [ ] Release TPLA code
 - [ ] Release HISA code
 - [ ] Release MISA code
-- [ ] Release GQLA code
 
 ## 📚 Citation
 
