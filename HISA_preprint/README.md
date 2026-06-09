@@ -16,7 +16,35 @@ Token-level sparse attention mechanisms like DeepSeek Sparse Attention (DSA) nee
 
 ## Code
 
-Code coming soon.
+Reference implementations are available in the following repositories:
+
+- **GPU TileLang kernels:** [tile-ai/tilelang examples/dsa_hisa](https://github.com/tile-ai/tilelang/tree/main/examples/dsa_hisa)
+- **Ascend TileLang kernels:** [leavelet/hisa-ascend](https://github.com/leavelet/hisa-ascend)
+- **End-to-end SGLang integration:** [xuyufei-a/sglang_hisa, branch `hisa_pr`](https://github.com/xuyufei-a/sglang_hisa/tree/hisa_pr)
+
+
+### End-to-End Usage
+
+The end-to-end implementation is based on SGLang and should be used with the environment described in the [SGLang HISA PR](https://github.com/sgl-project/sglang/pull/24672). In particular, the implementation was validated on top of the official SGLang `v0.5.11` Docker image (`lmsysorg/sglang:latest`, CUDA 13). Inside that container, replace the bundled SGLang package with the HISA branch and install a CUDA-13-compatible TileLang release:
+
+```bash
+pip uninstall -y sglang
+git clone https://github.com/xuyufei-a/sglang_hisa.git
+cd sglang_hisa
+git checkout hisa_pr
+pip install -e python
+pip install --upgrade 'tilelang==0.1.9'
+```
+
+HISA is enabled through model config overrides:
+
+```bash
+export SGLANG_NSA_FUSE_TOPK=0
+python -m sglang.launch_server \
+  --model /path/to/DeepSeek-V3.2 \
+  --tp 8 \
+  --json-model-override-args '{"use_hisa": true, "hisa_k_block_size": 128, "hisa_block_topk": 64}'
+```
 
 ## Authors
 
