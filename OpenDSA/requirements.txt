@@ -1,0 +1,11 @@
+accelerate>=0.34
+datasets>=2.18
+transformers>=4.46
+numpy
+safetensors
+sentencepiece
+protobuf
+pyyaml
+packaging
+ninja
+hf_transfer

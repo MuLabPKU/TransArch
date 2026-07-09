@@ -1,0 +1,6 @@
+[project]
+name = "misa-vllm-patch"
+version = "0.2.0"
+
+[project.entry-points."vllm.general_plugins"]
+register_misa = "misa_vllm_patch.register:register"

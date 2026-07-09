@@ -1,0 +1,31 @@
+# Local environments
+venv/
+.venv/
+env.sh
+
+# Python caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local data and experiment outputs
+data_cache/
+runs/
+logs/
+eval_results/
+*.log
+
+# Model/checkpoint artifacts
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+checkpoint-*/
+
+# Editor and OS files
+.DS_Store
+.idea/
+.vscode/

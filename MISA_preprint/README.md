@@ -13,7 +13,53 @@ DeepSeek Sparse Attention (DSA) sets the state of the art for fine-grained infer
 
 ## Code
 
-Code coming soon.
+This release provides vLLM patch implementations for both MISA variants:
+
+- [`misa_vllm_patch_1stage/`](misa_vllm_patch_1stage/): MISA.
+- [`misa_vllm_patch_2stage/`](misa_vllm_patch_2stage/): MISA†, the two-stage hierarchical variant.
+
+### Environment
+
+- `vllm == 0.17.0`
+- `transformers == 5.2.0`
+- `lm-eval == 0.4.11`
+- `tilelang == 0.1.7.post3`
+
+### Quick Start
+
+Install one patch at a time, depending on the variant you want to run.
+
+For MISA:
+
+```bash
+pip install -e ./misa_vllm_patch_1stage
+```
+
+For MISA†:
+
+```bash
+pip install -e ./misa_vllm_patch_2stage
+```
+
+Then add the following fields to the model `config.json`:
+
+```json
+{
+  "use_misa": true,
+  "misa_topk_heads": 8,
+  "misa_decode_topk_heads": 8,
+  "misa_k_block_size": 1024,
+  "misa_use_qnorm": false
+}
+```
+
+For MISA†, also add:
+
+```json
+{
+  "misa_stage1_topk": 8192
+}
+```
 
 ## Authors
 

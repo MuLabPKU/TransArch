@@ -14,6 +14,8 @@ debug
 build/
 develop-eggs/
 dist/
+!OpenDSA/opendsa/dist/
+!OpenDSA/opendsa/dist/**
 downloads/
 eggs/
 .eggs/
@@ -172,3 +174,6 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# macOS metadata
+.DS_Store

@@ -1,4 +1,4 @@
-# HISA: Efficient Hierarchical Indexing for Fine-Grained Sparse Attention [Under Review]
+# HISA: Efficient Hierarchical Indexing for Fine-Grained Sparse Attention [COLM 2026]
 
 Token-level sparse attention mechanisms like DeepSeek Sparse Attention (DSA) need an indexer that scores every historical token for each query, creating an O(L²) per-layer bottleneck that becomes prohibitive as context lengths grow to 128K tokens and beyond. **HISA** replaces the flat token-scanning indexer with a two-stage hierarchical procedure:
 
@@ -53,10 +53,10 @@ Yufei Xu, Fanxu Meng, Fan Jiang, Yuxuan Wang, Ruijie Zhou, Zhaohui Wang, Jiexi W
 ## Citation
 
 ```bibtex
-@article{xu2026hisa,
+@inproceedings{xu2026hisa,
   title={HISA: Efficient Hierarchical Indexing for Fine-Grained Sparse Attention},
   author={Xu, Yufei and Meng, Fanxu and Jiang, Fan and Wang, Yuxuan and Zhou, Ruijie and Wang, Zhaohui and Wu, Jiexi and Pan, Zhixin and Tang, Xiaojuan and Pei, Wenjie and Liu, Tongxuan and Yin, Di and Sun, Xing and Zhang, Muhan},
-  journal={arXiv preprint arXiv:2603.28458},
+  booktitle={Conference on Language Modeling (COLM)},
   year={2026}
 }
 ```
