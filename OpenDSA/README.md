@@ -136,3 +136,8 @@ NCCL_DEBUG=WARN torchrun --nproc_per_node=2 tests/test_sparse_cp_ep_equiv.py
 
 The DeepSeek-based tests require `deepseek-ai/DeepSeek-V2-Lite-Chat` remote code
 to be available through Hugging Face cache or network access.
+
+## Acknowledgements
+
+OpenDSA's FlashKL-based warmup and sparse KL operators reference the FlashKL
+project: [XiaojuanTang/FlashKL](https://github.com/XiaojuanTang/FlashKL).

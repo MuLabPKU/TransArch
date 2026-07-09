@@ -1,5 +1,8 @@
 """flashkl_warmup.py — single-indexer FlashKL warmup loss (O(L·H) memory).
 
+This implementation references the FlashKL project:
+https://github.com/XiaojuanTang/FlashKL
+
 The DSA warmup stage trains a Lightning Indexer to match the *teacher* attention
 distribution (the model's own dense MLA attention, head-averaged) via a KL loss.
 Because the teacher is frozen, the teacher-entropy term of the KL is a constant
