@@ -8,12 +8,6 @@ Lightning Indexer. This module provides:
     works on CPU/GPU, correct by construction (backward via autograd). This is
     the default path and the correctness baseline.
 
-  * ``sparse_mla_kernel`` — thin wrapper around optional TileLang sparse-MLA
-    kernels (sm_90). Set ``OPENDSA_SPARSE_MLA_KERNEL_PATH`` if they live outside
-    the import path. Falls back to the reference automatically if TileLang is
-    unavailable or shapes are unsupported. Currently exposes forward; use the
-    reference for backward until the kernel bwd is wired (see note below).
-
 MLA absorbed contract (matches the teacher used in warmup):
     q  : [L, H, Dqk]     per-head query in latent space (Dqk = kv_lora + rope, e.g. 576)
     kv : [L, Dqk]        shared K==softmax key; the first d_v dims (=kv_lora, 512)
@@ -290,45 +284,6 @@ def sparse_attend_absorbed_chunked(
             o = _attend_absorbed_chunk(*args)
         outs.append(o)
     return torch.cat(outs, dim=0)                                   # [L,H,Dv]
-_KERNEL_CACHE = {"loaded": False, "fn": None}
-
-
-def _load_kernel():
-    if _KERNEL_CACHE["loaded"]:
-        return _KERNEL_CACHE["fn"]
-    _KERNEL_CACHE["loaded"] = True
-    try:
-        import os
-        import sys
-        kpath = os.environ.get("OPENDSA_SPARSE_MLA_KERNEL_PATH")
-        if kpath and kpath not in sys.path:
-            sys.path.insert(0, kpath)
-        from kernels.sparse_mla_wrapper import sparse_mla_attn  # noqa
-        _KERNEL_CACHE["fn"] = sparse_mla_attn
-    except Exception as e:  # pragma: no cover - kernel optional
-        _KERNEL_CACHE["fn"] = None
-        _KERNEL_CACHE["err"] = repr(e)
-    return _KERNEL_CACHE["fn"]
-
-
-def sparse_mla_kernel(
-    q: torch.Tensor,          # [L, H, 576]
-    kv: torch.Tensor,         # [L, 576]
-    indices: torch.Tensor,    # [L, topk] int32
-    *,
-    d_v: int = 512,
-    sm_scale: Optional[float] = None,
-    block_I: int = 32,
-) -> torch.Tensor:
-    """Forward-only TileLang sparse MLA (bf16, sm_90). Returns [L,H,d_v].
-    Falls back to ``sparse_mla_ref`` if the kernel can't be loaded/run."""
-    fn = _load_kernel()
-    if fn is None or not q.is_cuda:
-        return sparse_mla_ref(q, kv, indices, d_v=d_v, sm_scale=sm_scale)
-    try:
-        return fn(q, kv, indices.to(torch.int32), sm_scale=sm_scale, block_I=block_I)
-    except Exception:
-        return sparse_mla_ref(q, kv, indices, d_v=d_v, sm_scale=sm_scale)
 
 
 # --------------------------------------------------------------------------- #

@@ -10,12 +10,15 @@ When WORLD_SIZE is unset or 1 we run in a trivial single-process mode where ever
 collective is the identity — so the exact same code path runs on 1 GPU (the
 numerical-equivalence baseline) and on N.
 
-Sequence sharding is **contiguous**: rank r owns global positions
-    [r * Lloc, (r+1) * Lloc),  Lloc = L / cp_size
-(zigzag load-balancing is a later speed tweak; with KV all-gather correctness is
-identical). The autograd-aware ``AllGatherSeq`` gathers a sharded [Lloc, ...] tensor
-to the full [L, ...] on every rank (forward) and reduce-scatters the gradient back to
-each rank's shard (backward), so student tensors that require grad can be gathered.
+Sequence sharding is **zigzag** (load-balanced for causal attention): the sequence
+is split into ``2*cp_size`` chunks and rank r owns chunks ``{r, 2n-1-r}`` (one early,
+one late), so every rank does the same amount of causal work. Keys are all-gathered
+and **reordered back to sequential global order** so that "key row index == global
+position" still holds for causal masks and top-k selection; correctness is identical
+to a contiguous split. The autograd-aware ``AllGatherSeq`` gathers a sharded
+[Lloc, ...] tensor to the full ordered [L, ...] on every rank (forward) and reduce-
+scatters the gradient back to each rank's zigzag shard (backward), so student tensors
+that require grad can be gathered.
 """
 from __future__ import annotations
 
@@ -112,39 +115,91 @@ def ep_group():
 
 
 # --------------------------------------------------------------------------- #
-#  sequence sharding (contiguous)
+#  sequence sharding (zigzag, load-balanced)
 # --------------------------------------------------------------------------- #
+# Causal attention makes later tokens attend more keys, so a CONTIGUOUS split
+# would leave the last rank doing ~2x the work of the first. Zigzag balances it:
+# split the sequence into 2n chunks and give rank r chunks {r, 2n-1-r} (one early,
+# one late). Every rank then does the same total causal work. Keys are still
+# all-gathered, so correctness is identical to the contiguous split — we just
+# reorder the gathered tensor back to sequential global order (below) so that
+# "key row index == global position" continues to hold for causal masks / top-k.
+_ZIGZAG_PERM_CACHE: dict = {}
+
+
+def _zigzag_g_from_s(L: int, n: int, device) -> torch.Tensor:
+    """Row permutation mapping a SEQUENTIAL position s -> its row in the RANK-ORDER
+    gathered tensor. ``gathered[g_from_s] == sequential``. Cached per (L,n,device)."""
+    key = (L, n, str(device))
+    perm = _ZIGZAG_PERM_CACHE.get(key)
+    if perm is not None:
+        return perm
+    assert L % (2 * n) == 0, f"seq len {L} not divisible by 2*cp_size {2 * n}"
+    Lchunk = L // (2 * n)
+    s = torch.arange(L, device=device)
+    g = s // Lchunk                      # global chunk of each sequential row
+    o = s % Lchunk                       # offset within the chunk
+    # gathered chunk-slot: rank r contributes slot 2r (chunk r) then 2r+1 (chunk 2n-1-r)
+    slot = torch.where(g < n, 2 * g, 4 * n - 2 * g - 1)
+    perm = (slot * Lchunk + o).long()
+    _ZIGZAG_PERM_CACHE[key] = perm
+    return perm
+
+
 def local_shard(x: torch.Tensor, dim: int = 0):
-    """Return this CP rank's contiguous shard of ``x`` along ``dim``. No-op if cp==1.
-    Requires x.shape[dim] % cp_size == 0."""
+    """Return this CP rank's ZIGZAG shard of ``x`` along ``dim``: the concatenation
+    of global chunk ``r`` and chunk ``2n-1-r`` (of a 2n-way split). No-op if cp==1
+    (rank 0 owns both halves, i.e. the whole sequence in order).
+    Requires x.shape[dim] % (2*cp_size) == 0."""
     n = cp_size()
     if n == 1:
         return x
     L = x.shape[dim]
-    assert L % n == 0, f"seq len {L} not divisible by cp_size {n}"
-    Lloc = L // n
-    start = cp_rank() * Lloc
-    return x.narrow(dim, start, Lloc).contiguous()
+    assert L % (2 * n) == 0, f"seq len {L} not divisible by 2*cp_size {2 * n}"
+    Lchunk = L // (2 * n)
+    r = cp_rank()
+    lo = x.narrow(dim, r * Lchunk, Lchunk)
+    hi = x.narrow(dim, (2 * n - 1 - r) * Lchunk, Lchunk)
+    return torch.cat([lo, hi], dim=dim).contiguous()
+
+
+def zigzag_local_gpos(L: int, device) -> torch.Tensor:
+    """Global positions [Lloc] of this rank's local (zigzag) tokens, in local order:
+    chunk r's positions followed by chunk 2n-1-r's. For cp==1 this is arange(L)."""
+    n = cp_size()
+    if n == 1:
+        return torch.arange(L, device=device)
+    Lchunk = L // (2 * n)
+    r = cp_rank()
+    lo = torch.arange(r * Lchunk, (r + 1) * Lchunk, device=device)
+    hi = torch.arange((2 * n - 1 - r) * Lchunk, (2 * n - r) * Lchunk, device=device)
+    return torch.cat([lo, hi])
 
 
 def seq_offset(L_local: int) -> int:
-    """Global position of this rank's first local token (contiguous split)."""
-    return cp_rank() * L_local
+    """Deprecated under zigzag sharding (local tokens are not a contiguous global
+    range). Kept only for the trivial cp==1 case; use ``zigzag_local_gpos`` instead."""
+    if cp_size() == 1:
+        return 0
+    raise RuntimeError("seq_offset is invalid under zigzag CP; use zigzag_local_gpos")
 
 
 # --------------------------------------------------------------------------- #
 #  collectives
 # --------------------------------------------------------------------------- #
 def _all_gather_dim0(x: torch.Tensor) -> torch.Tensor:
-    """Plain all-gather of an [Lloc, ...] tensor along dim0 -> [Lloc*cp, ...].
-    Assumes every rank contributes the same shape (contiguous even split)."""
+    """All-gather an [Lloc, ...] zigzag shard along dim0 and reorder to SEQUENTIAL
+    global order -> [Lloc*cp, ...]. Assumes every rank contributes the same shape
+    (even zigzag split). For cp==1 this is the identity."""
     n = cp_size()
     if n == 1:
         return x
     xc = x.contiguous()
     out = [torch.empty_like(xc) for _ in range(n)]
     dist.all_gather(out, xc, group=cp_group())
-    return torch.cat(out, dim=0)
+    gathered = torch.cat(out, dim=0)                 # rank-order rows
+    perm = _zigzag_g_from_s(gathered.shape[0], n, gathered.device)
+    return gathered.index_select(0, perm)            # -> sequential order
 
 
 class AllGatherSeq(torch.autograd.Function):
@@ -167,11 +222,13 @@ class AllGatherSeq(torch.autograd.Function):
         n = ctx.cp
         if n == 1:
             return grad_full
-        # sum-reduce the full-seq grad across ranks, then take this rank's slice
+        # grad_full is in SEQUENTIAL global order. Sum every rank's contribution
+        # (each rank used the full key sequence), then pick this rank's zigzag rows
+        # in the same local order the forward shard used — local_shard is exactly
+        # that sequential->zigzag row selection, so it inverts the forward gather.
         g = grad_full.contiguous()
         dist.all_reduce(g, op=dist.ReduceOp.SUM, group=cp_group())
-        start = cp_rank() * ctx.Lloc
-        return g.narrow(0, start, ctx.Lloc)
+        return local_shard(g, dim=0)
 
 
 def all_gather_seq(x: torch.Tensor, grad: bool = False) -> torch.Tensor:

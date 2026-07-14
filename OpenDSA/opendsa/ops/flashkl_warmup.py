@@ -62,6 +62,47 @@ def _acc_dtype(dtype: torch.dtype) -> torch.dtype:
     return torch.float32 if dtype in (torch.float16, torch.bfloat16) else dtype
 
 
+# Peak transient bytes of one FlashKL key-tile ≈ _TILE_MEM_COEFF * Lq * H * tile.
+# The tile loop materializes a handful of fp32 [Lq, H, tile] scratch tensors
+# (teacher logits a/e, student sh, softmax terms). Measured slope on H100 is
+# ~6.5 bytes/elem across tile in {512,1024,2048}; round up to 8 for headroom.
+_TILE_MEM_COEFF = 8.0
+
+
+def auto_warmup_tile(
+    Lq: int,
+    H: int,
+    cap: int,
+    device: torch.device,
+    mem_fraction: float = 0.30,
+) -> int:
+    """Pick a FlashKL key-tile that keeps the per-tile fp32 scratch within a fraction
+    of the CURRENTLY FREE GPU memory, never exceeding the configured ``cap``.
+
+    FlashKL peak is dominated by O(Lq·H·tile) fp32 intermediates (not the inputs and
+    not the dtype — see README perf notes), so ``tile`` is the real memory knob at
+    long context. This derives the largest tile whose scratch fits ``mem_fraction`` of
+    free memory, clamped to [64, cap] and rounded down to a multiple of 64. On CPU or
+    when the budget already admits ``cap`` it just returns ``cap`` (short-context and
+    the numerical self-tests are unaffected — those pass an explicit tile).
+    """
+    cap = max(64, int(cap))
+    if device is None or device.type != "cuda" or not torch.cuda.is_available():
+        return cap
+    try:
+        free, _ = torch.cuda.mem_get_info(device)
+    except Exception:
+        # if the driver can't report free memory, fall back to the configured cap
+        return cap
+    budget = free * mem_fraction
+    per_tile_row = _TILE_MEM_COEFF * Lq * H          # bytes per unit of tile
+    if per_tile_row <= 0:
+        return cap
+    tile = int(budget // per_tile_row)
+    tile = min(cap, max(64, tile))
+    return (tile // 64) * 64 or 64
+
+
 def _teacher_logits(Qmf, Kmf, s0, s1, sm_tea):
     """Per-head teacher logits α[L,H,b] for key tile [s0,s1).
     Qmf: [L,H,D]. Kmf: [L,H,D] (per-head) or [L,D] (shared across heads)."""

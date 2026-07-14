@@ -21,6 +21,66 @@ The stage is selected per-module via `dsa_mode`:
    top-k keys per query; attention runs only over them (sparse MLA). Loss =
    `LM_loss + λ · indexer_KL(over selected keys)`.
 
+## Performance & memory optimizations
+
+The whole recipe is built around one constraint — long context (up to 200k) on an
+80 GB budget — so every stage trades compute cleverly to stay memory-bounded and
+fast:
+
+- **Per-layer eager (immediate) warmup backward.** Because each layer's indexer KL
+  is independent (hidden states flow under `no_grad`, teacher detached),
+  `IndexerLossRegistry` can backward each layer's loss the moment it is produced and
+  keep only a detached scalar (`set_eager_backward`, `opendsa/modeling/dsa_attention.py`;
+  driven by `DSATrainer.training_step`). This frees each layer's graph before the next
+  layer runs, dropping peak activation from `num_layers · O(L·H)` to `~1 · O(L·H)`
+  and removing the need for activation recompute during warmup — while giving
+  gradients numerically identical to the sum-then-backward path.
+- **FlashKL `O(L·H)` warmup/sparse loss.** The KL against the frozen teacher is linear
+  in the teacher probabilities, so it decomposes per head and is accumulated with
+  Flash-Attention-style online-softmax tiling over the key axis — the `[L,H,L]`
+  attention matrix is never materialized (`opendsa/ops/flashkl_warmup.py`,
+  `opendsa/ops/topk_select.py`).
+- **Memory-adaptive warmup key-tile.** FlashKL's peak is dominated by `O(Lq·H·tile)`
+  fp32 scratch, so the key-tile — not the input dtype — is the real memory knob at
+  long context. `auto_warmup_tile` sizes it from live free GPU memory (capped by the
+  configured `dsa_tile`, falling back to the cap on CPU / if the driver can't report
+  free memory), so short context keeps the fast wide tile while a memory-tight rank
+  automatically shrinks it (e.g. ~2 GB free at 16k ctx: tile 512→256, peak −44%) to
+  dodge OOM. The loss is bit-identical regardless of tile (the streaming sum is
+  exact). Note: keeping these fp32 scratch reductions in fp32 is a numerical
+  requirement (online-softmax stability), so — absent a fused kernel — running the
+  q·k GEMMs in bf16 neither speeds this pure-torch path up nor meaningfully shrinks
+  its peak; the tile is the lever.
+- **No logits when we don't need them.** The `[B, L, vocab]` fp32 logits tensor is
+  huge (~10 GB/GPU at 200k, CP=8). Warmup and diagnostics don't need it (their loss
+  comes from the indexer, not next-token prediction), so those paths run the decoder
+  stack alone and skip the LM head entirely — the logits are never built.
+- **Sliced logits when we do.** The sparse stage needs a real next-token CE loss, so
+  it can't skip the LM head — but instead of projecting all `L` tokens at once, it
+  slices them into chunks, runs LM-head + CE one chunk at a time, and frees each
+  chunk's logits before the next (recomputing them in the backward pass via
+  `torch.utils.checkpoint`). Peak logits memory drops from `O(L · vocab)` to
+  `O(chunk_size · vocab)`, and the loss is numerically identical to the one-shot
+  version (`_chunked_shift_ce`).
+- **Absorbed-MLA sparse attention.** Sparse MLA runs in DeepSeek-V2 latent space and
+  gathers the *shared* latent `[chunk, K, 576]` once instead of per-head K/V, plus
+  query chunking + gradient checkpointing (`sparse_attend_absorbed_chunked`).
+- **Cross-document attention masking.** Packing carries per-doc `cu_seqlens`, and the
+  dense LM path uses `flash_attn_varlen` so attention never crosses conversation
+  boundaries — this both improves quality and speeds training (ProLong finding).
+- **Distributed sharding matched to the bottleneck.** CP shards one long sequence's
+  context activations (KV all-gather in absorbed latent space), EP shards the routed
+  MoE experts (all-to-all dispatch), and `Zero2Adam` shards non-expert optimizer
+  state — fusing the CP grad-sum into a single `reduce_scatter` — without FSDP's
+  per-layer param all-gather.
+- **Zigzag CP sequence sharding.** Causal attention makes late tokens attend more
+  keys, so a contiguous split leaves the last rank doing ~2× the first rank's work.
+  CP splits the sequence into `2·cp_size` chunks and gives rank r chunks `{r, 2n-1-r}`
+  (one early, one late), equalizing per-rank causal work; gathered keys are reordered
+  back to sequential order so causal masks and top-k are unchanged (`local_shard`,
+  `zigzag_local_gpos` in `opendsa/dist/pg.py`, verified numerically equal to the
+  single-GPU reference).
+
 All operators have pure-torch, CPU/float64-verifiable reference paths plus
 memory-bounded (query-chunked + gradient-checkpointed) training paths. Every op
 self-checks to ~1e-16 grad error against its dense reference:
@@ -67,9 +127,9 @@ flash-attn for the dense LM path.
 # Optional: create a local env.sh for site-specific CUDA/HF cache setup.
 # The run scripts source it automatically if it exists.
 
-# 1. build a packed dataset (UltraData-style JSONL, per-doc masking)
+# 1. build a packed dataset from Hugging Face (UltraData-style messages, per-doc masking)
 python -m opendsa.data.long_pack --seq-len 8192 --out data_cache/pack_8k \
-    --data /path/to/UltraData-SFT-2605-split/32k-200k --max-packed 4000
+    --data fxmeng/UltraData-SFT-2605-32k-200k --max-packed 4000
 
 # 2. train the indexer warmup stage
 DATA=data_cache/pack_8k OUT=runs/warmup SEQ_LEN=8192 bash scripts/run_warmup.sh
@@ -105,8 +165,9 @@ Tunables are env-overridable: `TOPK`, `GRAD_ACCUM`, `SEQ_LEN`, `STEPS`, `NPROC`,
   `kv_lora` space and gather the *shared* latent `[chunk, K, 576]` once instead of
   per-head K `[chunk,K,H,192]` + V `[chunk,K,H,128]`; value comes from the same
   latent via `W_UV`.
-- **Long-context data**: trains on `UltraData-SFT-2605-split/32k-200k` (real
-  33k–200k-token docs). Warmup's LM path uses `flash_attn_varlen` and a
+- **Long-context data**: trains on the Hugging Face dataset
+  `fxmeng/UltraData-SFT-2605-32k-200k` (real 33k–200k-token docs). Warmup's LM
+  path uses `flash_attn_varlen` and a
   query-chunked recall metric so no `[L,H,L]` matrix is built for diagnostics.
 - **Context + Expert Parallel (CP + EP), no FSDP.** `CP_MODE=1 bash scripts/run_warmup.sh`
   splits each sequence across the 8 GPUs (KV all-gather in absorbed latent space);

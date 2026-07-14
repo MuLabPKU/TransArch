@@ -1,10 +1,11 @@
 """OpenDSA operators — FlashKL warmup/sparse KL losses + sparse MLA attention.
 
-All ops have pure-torch, CPU/float64-verifiable reference paths (the default and
-correctness baseline) plus optional TileLang GPU fast-paths on H100 (sm_90).
+All ops are pure-torch with CPU/float64-verifiable reference paths, plus
+memory-bounded (query-chunked + gradient-checkpointed) training paths.
 """
 from .flashkl_warmup import (
     flashkl_warmup_loss,
+    auto_warmup_tile,
     dense_warmup_reference,
     indexer_topk_recall,
     prepare_ks_ke,
@@ -18,7 +19,6 @@ from .topk_select import (
 )
 from .sparse_mla import (
     sparse_mla_ref,
-    sparse_mla_kernel,
     sparse_attend_ref,
     sparse_attend_chunked,
     sparse_attend_absorbed_chunked,
@@ -26,6 +26,7 @@ from .sparse_mla import (
 
 __all__ = [
     "flashkl_warmup_loss",
+    "auto_warmup_tile",
     "dense_warmup_reference",
     "indexer_topk_recall",
     "prepare_ks_ke",
@@ -35,7 +36,6 @@ __all__ = [
     "flashkl_sparse_loss",
     "sparse_kl_chunked",
     "sparse_mla_ref",
-    "sparse_mla_kernel",
     "sparse_attend_ref",
     "sparse_attend_chunked",
     "sparse_attend_absorbed_chunked",

@@ -70,18 +70,26 @@ def _lm_head(model):
     raise AttributeError("cannot find lm_head")
 
 
-def _chunked_shift_ce(hidden, labels, lm_head_module, vocab_size, chunk_size):
+def _chunked_shift_ce(hidden, labels, lm_head_module, vocab_size, chunk_size, shift=True):
     """Chunked shift-CE that avoids materializing the [B, L_local-1, vocab] fp32
     logits tensor (10 GB at 200k/CP=8). Each chunk runs lm_head + CE under
     torch.utils.checkpoint so logits are freed after the forward chunk and
     recomputed during backward — trading a small recomputation for peak memory
     O(chunk_size * vocab) instead of O(L_local * vocab).
 
+    ``shift=True`` (default, non-CP): ``labels`` is aligned with ``hidden`` and the
+    next-token target of position i is ``labels[i+1]`` (standard causal shift).
+    ``shift=False`` (zigzag CP): ``labels`` is ALREADY the per-position target
+    (``labels[i]`` is the target for ``hidden[i]``, with -100 on invalid slots), so
+    no local shift is applied — required because zigzag-local tokens are not globally
+    contiguous, so a local shift would cross the chunk seam. The caller builds those
+    targets from the pre-shard full labels via global positions (exact, no comm).
+
     Loss reduction matches HF's default CrossEntropyLoss (mean over valid tokens),
     computed as sum-over-chunks / count-of-valid.
     """
     B, L, H = hidden.shape
-    Ls = L - 1
+    Ls = (L - 1) if shift else L
     if Ls <= 0:
         return hidden.new_zeros(())
 
@@ -97,10 +105,26 @@ def _chunked_shift_ce(hidden, labels, lm_head_module, vocab_size, chunk_size):
     for start in range(0, Ls, chunk_size):
         end = min(start + chunk_size, Ls)
         h_c = hidden[:, start:end, :]
-        y_c = labels[:, start + 1:end + 1]
+        y_c = labels[:, start + 1:end + 1] if shift else labels[:, start:end]
         n_valid = n_valid + (y_c != -100).sum().float()
         loss_sum = loss_sum + checkpoint(_ce_chunk, h_c, y_c, use_reentrant=False)
     return loss_sum / n_valid.clamp_min(1.0)
+
+
+def _cp_shifted_targets(full_labels, gpos):
+    """Per-local-position next-token targets for the zigzag-CP LM loss.
+
+    ``full_labels`` [B, L] is the pre-shard full-sequence label tensor (every CP rank
+    holds it); ``gpos`` [Lloc] gives each local token's global position. The target of
+    local token i is the full label at global position ``gpos[i]+1`` (next token), or
+    -100 when that would run past the sequence end. This reproduces the exact global
+    causal shift for tokens that are not globally contiguous under zigzag sharding.
+    """
+    L = full_labels.shape[1]
+    nxt = (gpos + 1).clamp(max=L - 1)
+    tgt = full_labels[:, nxt]                       # [B, Lloc]
+    tgt = torch.where((gpos + 1 < L).unsqueeze(0), tgt, torch.full_like(tgt, -100))
+    return tgt
 
 
 class DSATrainer(Trainer):
@@ -230,13 +254,22 @@ class DSATrainer(Trainer):
         attention_mask = inputs.get("attention_mask")
         labels = inputs.get("labels")
         # CP: every rank receives the SAME full sequence; shard it along the seq dim
-        # so each rank runs its L/cp local tokens (the attention CP branch gathers keys).
+        # so each rank runs its L/cp local tokens (the attention CP branch gathers
+        # keys). Sharding is ZIGZAG (load-balanced), so local tokens are NOT globally
+        # contiguous — keep the full labels + this rank's global positions to build
+        # exact next-token targets for the sparse LM loss below (a local shift would
+        # cross the zigzag seam).
+        cp_targets = None
         if cp > 1:
+            from ..dist import zigzag_local_gpos
+            full_labels = labels
+            gpos_cp = zigzag_local_gpos(input_ids.shape[1], input_ids.device)
             input_ids = local_shard(input_ids, dim=1)
             if attention_mask is not None:
                 attention_mask = local_shard(attention_mask, dim=1)
             if labels is not None:
                 labels = local_shard(labels, dim=1)
+                cp_targets = _cp_shifted_targets(full_labels, gpos_cp)
 
         if self.dsa_stage == "warmup":
             # Warmup loss is collected as a side-effect in the module REGISTRY, not
@@ -305,7 +338,12 @@ class DSATrainer(Trainer):
                       use_cache=False)
         hidden = dec_out[0] if isinstance(dec_out, tuple) else dec_out.last_hidden_state
         vocab = self.model.config.vocab_size
-        lm_loss = _chunked_shift_ce(hidden, labels, head, vocab, self._lm_chunk_size)
+        if cp_targets is not None:
+            # zigzag CP: targets are pre-aligned to global next-token, no local shift
+            lm_loss = _chunked_shift_ce(hidden, cp_targets, head, vocab,
+                                        self._lm_chunk_size, shift=False)
+        else:
+            lm_loss = _chunked_shift_ce(hidden, labels, head, vocab, self._lm_chunk_size)
         idx_loss = reg.total()
         idx_term = 0.0 if idx_loss is None else self.indexer_loss_coeff * idx_loss
         if cp > 1:

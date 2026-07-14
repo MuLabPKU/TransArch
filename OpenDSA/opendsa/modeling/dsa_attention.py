@@ -35,6 +35,7 @@ import torch.nn.functional as F
 from .indexer import LightningIndexer
 from ..ops import (
     flashkl_warmup_loss,
+    auto_warmup_tile,
     flashkl_sparse_loss,
     sparse_kl_chunked,
     indexer_select_topk,
@@ -357,6 +358,9 @@ def _warmup_forward(self, orig_forward, hidden_states, attention_mask, position_
     # --- per-row FlashKL warmup loss ---
     cus = _cu_from_batch(B, L, dev, getattr(self, "cu_seqlens", None))
     sm_tea = float(self.softmax_scale)
+    # memory-adaptive key-tile: shrink from the configured cap when free memory is
+    # tight (peak is O(Lq·H·tile) fp32 scratch), never exceeding it.
+    warmup_tile = auto_warmup_tile(L, Qm.shape[2], getattr(self, "dsa_tile", 512), dev)
     losses = []
     with torch.no_grad():
         do_recall = getattr(self, "dsa_log_recall", False)
@@ -366,7 +370,7 @@ def _warmup_forward(self, orig_forward, hidden_states, attention_mask, position_
             q_idx[b], k_idx[b], w_idx[b],
             Qm[b].to(torch.float32), Km[b].to(torch.float32),
             cus[b], sm_scale_teacher=sm_tea,
-            sm_scale_index=self.indexer.softmax_scale, tile=getattr(self, "dsa_tile", 512),
+            sm_scale_index=self.indexer.softmax_scale, tile=warmup_tile,
         )
         losses.append(lb)
     loss = torch.stack(losses).mean()
@@ -434,14 +438,13 @@ def _warmup_forward_cp(self, hidden_states, position_ids):
     rank's indexer params; the CP-group all-reduce happens in the trainer). The LM
     path reconstructs full per-head K/V from the gathered latent and runs local-Q
     vs full-K/V causal flash attention -> local hidden for the next layer."""
-    from ..dist import cp_size, cp_rank, seq_offset, all_gather_seq
+    from ..dist import cp_size, cp_rank, zigzag_local_gpos, all_gather_seq
     B, Lloc, _ = hidden_states.shape
     assert B == 1, "CP warmup assumes batch size 1 (packed long-context)"
     dev = hidden_states.device
     n = cp_size()
     Lk = Lloc * n
-    offset = cp_rank() * Lloc
-    gpos = torch.arange(offset, offset + Lloc, device=dev).unsqueeze(0)  # [1,Lloc] global
+    gpos = zigzag_local_gpos(Lk, dev).unsqueeze(0)  # [1,Lloc] global (zigzag order)
 
     # local absorbed teacher (rope table spans the full global sequence)
     with torch.no_grad():
@@ -468,11 +471,13 @@ def _warmup_forward_cp(self, hidden_states, position_ids):
     else:
         cu_full = cu_full.to(dev)
     sm_tea = float(self.softmax_scale)
+    # memory-adaptive key-tile (CP: local Lloc queries, full Lk key axis).
+    warmup_tile = auto_warmup_tile(Lloc, Qlat_loc.shape[2], getattr(self, "dsa_tile", 512), dev)
     loss = flashkl_warmup_loss(
         q_idx[0], k_idx_full, w_idx[0],
         Qlat_loc[0].float(), latent_full.float(),
         cu_full, sm_scale_teacher=sm_tea,
-        sm_scale_index=self.indexer.softmax_scale, tile=getattr(self, "dsa_tile", 512),
+        sm_scale_index=self.indexer.softmax_scale, tile=warmup_tile,
         q_global_pos=gpos[0], nrow_global=Lk)
 
     recall = None
@@ -633,14 +638,13 @@ def _sparse_forward_cp(self, hidden_states):
     selected over the full gathered indexer keys (indices are GLOBAL positions);
     sparse MLA attends the gathered latent; the indexer KL trains on the selected set.
     LM output is the local [Lloc,...] hidden for the next layer."""
-    from ..dist import cp_size, cp_rank, all_gather_seq
+    from ..dist import cp_size, cp_rank, zigzag_local_gpos, all_gather_seq
     B, Lloc, _ = hidden_states.shape
     assert B == 1, "CP sparse assumes batch size 1 (packed long-context)"
     dev = hidden_states.device
     n = cp_size()
     Lk = Lloc * n
-    offset = cp_rank() * Lloc
-    gpos = torch.arange(offset, offset + Lloc, device=dev).unsqueeze(0)  # [1,Lloc]
+    gpos = zigzag_local_gpos(Lk, dev).unsqueeze(0)  # [1,Lloc] global (zigzag order)
 
     # absorbed teacher (grad flows); rope table spans the full global sequence
     q_lat, latent_loc, W_UV, cos, sin = _compute_teacher_absorbed(

@@ -5,7 +5,8 @@ Also runs standalone (world=1, trivial mode):  python tests/test_pg.py
 """
 import _path  # noqa: F401
 import torch
-from opendsa.dist import (init_parallel, cp_size, cp_rank, local_shard, seq_offset,
+from opendsa.dist import (init_parallel, cp_size, cp_rank, local_shard,
+                          zigzag_local_gpos,
                           all_gather_seq, all_to_all, is_dist,
                           reduce_scatter_tensor, all_gather_into_tensor, cp_group)
 
@@ -16,16 +17,18 @@ def main():
     n = cp_size()
     r = cp_rank()
 
-    # --- local_shard + all_gather_seq round-trip (no grad) ---
+    # --- local_shard (zigzag) + all_gather_seq round-trip (no grad) ---
     L = 8
     full = torch.arange(L, device=dev).float().unsqueeze(-1)     # [L,1] known
-    shard = local_shard(full, dim=0)                            # [L/n,1]
+    shard = local_shard(full, dim=0)                            # [L/n,1] zigzag rows
     Lloc = shard.shape[0]
-    assert seq_offset(Lloc) == r * Lloc
-    gathered = all_gather_seq(shard, grad=False)
+    # this rank's zigzag shard must hold exactly its global-position rows, in order
+    gpos = zigzag_local_gpos(L, dev)
+    assert torch.equal(shard.squeeze(-1), gpos.float()), f"zigzag shard mismatch rank {r}"
+    gathered = all_gather_seq(shard, grad=False)                # reordered to sequential
     assert torch.equal(gathered, full), f"gather mismatch on rank {r}"
     if r == 0:
-        print(f"[pg] local_shard+all_gather round-trip OK (n={n})")
+        print(f"[pg] zigzag local_shard+all_gather round-trip OK (n={n})")
 
     # --- AllGatherSeq autograd: grad should reduce-scatter back to the shard ---
     x = shard.clone().requires_grad_(True)
