@@ -7,10 +7,10 @@ Two pieces used by the DSA sparse-training stage:
      drives which keys the sparse MLA attends to. No grad (a hard selection).
 
   2. ``sparse_kl_chunked`` — the indexer keeps learning during sparse training:
-     KL( teacher_over_selected ‖ softmax(I over selected) ), the same FlashKL
-     distillation as warmup but normalized over the per-query selected top-k
-     rather than the full causal range. Query-chunked + gradient-checkpointed so
-     the gathered columns are never all resident.
+     KL( teacher_over_selected ‖ softmax(I over selected) ), i.e. the distillation
+     KL restricted to each query's selected top-k keys (not the full causal range).
+     Chunked over the query axis + gradient-checkpointed so the per-chunk gathered
+     ``[q_chunk, K, ...]`` tensors are never all resident.
 
 The indexer score matches the warmup student exactly:
     I[t,j] = ( Σ_h w[t,h] · ReLU(<qf[t,h], kf[j]>) ) · sm_scale_index
@@ -79,8 +79,9 @@ def indexer_select_topk(
 def _teacher_pbar_chunk(Qm_c, Km, ids_c, sm_tea):
     """Head-averaged teacher distribution p̄[c,K] over the selected keys, computed
     under no_grad (teacher is frozen/detached). Kept OUTSIDE the checkpointed student
-    region so its [c,K,H,D] key-gather + per-head einsum runs ONCE (fwd only), not
-    again on every backward recompute — this is the main sparse-KL speedup."""
+    region so its key-gather + einsum runs ONCE (fwd only), not again on every
+    backward recompute — this is the main sparse-KL speedup. ``Km`` may be shared
+    latent [Lk,D] (the absorbed default) or per-head [Lk,H,D]."""
     c, K = ids_c.shape
     valid = ids_c >= 0
     idc = ids_c.clamp(min=0)
@@ -101,8 +102,8 @@ def _sparse_kl_chunk_student(qf_c, wf_c, kf, ids_c, pbar, sm_f):
 
     qf_c [c,Hf,df], wf_c [c,Hf], kf [L,df], ids_c [c,K] int64 (-1 pad), pbar [c,K].
     The [c,K,df] student gather is the only big intermediate recomputed on backward
-    under checkpoint — H_indexer (8) heads at df=128, far smaller than the teacher's
-    H(16)×192 per-head gather we now keep outside."""
+    under checkpoint — small (Hf indexer heads at df, e.g. 8×128) vs the teacher
+    gather kept outside."""
     c, K = ids_c.shape
     valid = ids_c >= 0
     idc = ids_c.clamp(min=0)
@@ -120,8 +121,8 @@ def _sparse_kl_chunk_student(qf_c, wf_c, kf, ids_c, pbar, sm_f):
 def sparse_kl_chunked(index_q, index_k, index_w, Q_main, K_main, ids, *,
                       sm_scale_teacher=None, sm_scale_index=None,
                       q_chunk: int = 512, checkpoint: bool = True, nrow_global=None):
-    """Memory-bounded sparse-stage indexer KL (FlashKL over the per-query selected
-    top-k). Streams query chunks so the gathered ``[q_chunk, K, H, D]`` tensors are
+    """Memory-bounded sparse-stage indexer KL over each query's selected top-k keys.
+    Streams the query axis so the per-chunk gathered ``[q_chunk, K, ...]`` tensors are
     never all resident. Teacher (Q_main/K_main)
     is detached; its head-averaged distribution is computed once per chunk under
     no_grad (not recomputed on backward). Only the cheap student score is
