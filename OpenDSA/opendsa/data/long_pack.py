@@ -1,7 +1,8 @@
 """long_pack.py — tokenize + pack UltraData-SFT chat data into training sequences.
 
-Source: a chat dataset laid out as ``<bucket>/<Category>/*.jsonl``; each line is
-a JSON object with a ``messages`` = [{role, content}] field.
+Source: the Hugging Face dataset ``fxmeng/UltraData-SFT-2605-32k-200k`` by
+default, or a local chat dataset laid out as ``<bucket>/<Category>/*.jsonl``.
+Each record must contain ``messages`` = [{role, content}].
 
 We render each conversation with the model's chat template, tokenize, and greedily
 pack conversations into sequences of exactly ``seq_len`` tokens. Each packed
@@ -19,7 +20,7 @@ per batch.
 
 CLI:
     python -m opendsa.data.long_pack --seq-len 32768 --out data_cache/pack_32k \
-        --data /path/to/UltraData-SFT-2605-split/32k-200k
+        --data fxmeng/UltraData-SFT-2605-32k-200k
 """
 from __future__ import annotations
 
@@ -31,7 +32,8 @@ from typing import List, Optional
 
 import numpy as np
 
-DEFAULT_DATA = os.environ.get("OPENDSA_DATA", "")
+DEFAULT_DATA = os.environ.get("OPENDSA_DATA", "fxmeng/UltraData-SFT-2605-32k-200k")
+DEFAULT_SPLIT = os.environ.get("OPENDSA_DATA_SPLIT", "train")
 
 
 def _render_and_tokenize(messages, tokenizer, assistant_only):
@@ -67,7 +69,19 @@ def _render_and_tokenize(messages, tokenizer, assistant_only):
     return ids, labels
 
 
-def _iter_ultradata_messages(data_dir):
+def _record_messages(record):
+    msgs = record.get("messages")
+    if isinstance(msgs, str):
+        try:
+            msgs = json.loads(msgs)
+        except json.JSONDecodeError:
+            return None
+    if isinstance(msgs, list) and msgs:
+        return msgs
+    return None
+
+
+def _iter_local_messages(data_dir):
     """Yield ``messages`` lists from the UltraData-SFT split. ``data_dir`` may be a
     directory (recursively globs ``<Category>/*.jsonl``), a single JSONL file, or a
     glob pattern. Each line is a JSON object with a ``messages`` field."""
@@ -86,14 +100,44 @@ def _iter_ultradata_messages(data_dir):
                     d = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                msgs = d.get("messages")
+                msgs = _record_messages(d)
                 if msgs:
                     yield msgs
 
 
-def _iter_conversations(data_dir, tokenizer, assistant_only, max_seqs):
+def _looks_like_local_source(data):
+    if os.path.exists(data):
+        return True
+    if any(ch in data for ch in "*?[]"):
+        return True
+    if data.startswith(("/", "./", "../")):
+        return True
+    if data.endswith(".jsonl"):
+        return True
+    return False
+
+
+def _iter_hf_messages(dataset_id, split, streaming):
+    """Yield ``messages`` lists from a Hugging Face dataset."""
+    from datasets import load_dataset
+
+    ds = load_dataset(dataset_id, split=split, streaming=streaming)
+    for row in ds:
+        msgs = _record_messages(row)
+        if msgs:
+            yield msgs
+
+
+def _iter_messages(data, split, streaming):
+    if _looks_like_local_source(data):
+        yield from _iter_local_messages(data)
+    else:
+        yield from _iter_hf_messages(data, split=split, streaming=streaming)
+
+
+def _iter_conversations(data, split, streaming, tokenizer, assistant_only, max_seqs):
     count = 0
-    for msgs in _iter_ultradata_messages(data_dir):
+    for msgs in _iter_messages(data, split=split, streaming=streaming):
         ids, labels = _render_and_tokenize(msgs, tokenizer, assistant_only)
         if len(ids) < 8:
             continue
@@ -108,6 +152,8 @@ def pack_dataset(
     seq_len: int,
     model: str = "deepseek-ai/DeepSeek-V2-Lite-Chat",
     data_dir: Optional[str] = None,
+    split: str = DEFAULT_SPLIT,
+    streaming: bool = True,
     assistant_only: bool = False,
     max_seqs: Optional[int] = None,
     max_packed: Optional[int] = None,
@@ -118,9 +164,14 @@ def pack_dataset(
 
     data_dir = data_dir or DEFAULT_DATA
     if not data_dir:
-        raise ValueError("pass --data or set OPENDSA_DATA to the source JSONL directory/glob")
+        raise ValueError("pass --data or set OPENDSA_DATA")
 
     tok = AutoTokenizer.from_pretrained(model, trust_remote_code=True)
+    # The dataset contains 32k-200k token conversations, while many HF tokenizers
+    # advertise a shorter default model_max_length. Packing truncates explicitly
+    # below, so raise the tokenizer warning threshold to avoid noisy logs.
+    tok.model_max_length = max(int(getattr(tok, "model_max_length", 0) or 0),
+                               seq_len, 1_000_000)
 
     buf_ids: List[int] = []
     buf_lab: List[int] = []
@@ -146,7 +197,8 @@ def pack_dataset(
             buf_cu.clear(); buf_cu.extend(newcu)
 
     n_conv = 0
-    for ids, labels in _iter_conversations(data_dir, tok, assistant_only, max_seqs):
+    for ids, labels in _iter_conversations(data_dir, split, streaming, tok,
+                                           assistant_only, max_seqs):
         # truncate a single conversation that alone exceeds seq_len
         if len(ids) > seq_len:
             ids = ids[:seq_len]
@@ -176,7 +228,7 @@ def pack_dataset(
     os.makedirs(out_dir, exist_ok=True)
     ds.save_to_disk(out_dir)
     print(f"[long_pack] seq_len={seq_len}  conversations={n_conv}  "
-          f"packed_sequences={len(ds)}  data={data_dir}  -> {out_dir}")
+          f"packed_sequences={len(ds)}  data={data_dir}  split={split}  -> {out_dir}")
     return ds
 
 
@@ -186,9 +238,14 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--model", default="deepseek-ai/DeepSeek-V2-Lite-Chat")
     ap.add_argument("--data", default=DEFAULT_DATA,
-                    help="UltraData-SFT split directory (recursive *.jsonl), a single "
-                         "JSONL file, or a glob. Defaults to OPENDSA_DATA. Records must "
-                         "have a `messages` field.")
+                    help="Hugging Face dataset id, local UltraData-SFT directory "
+                         "(recursive *.jsonl), single JSONL file, or glob. Defaults "
+                         "to OPENDSA_DATA or fxmeng/UltraData-SFT-2605-32k-200k. "
+                         "Records must have a `messages` field.")
+    ap.add_argument("--split", default=DEFAULT_SPLIT,
+                    help="Hugging Face split name. Defaults to OPENDSA_DATA_SPLIT or train.")
+    ap.add_argument("--streaming", default=True, action=argparse.BooleanOptionalAction,
+                    help="stream Hugging Face data instead of materializing the full dataset")
     ap.add_argument("--assistant-only", action="store_true")
     ap.add_argument("--max-seqs", type=int, default=None,
                     help="cap #conversations consumed (for quick builds)")
@@ -196,6 +253,7 @@ def main():
                     help="cap #packed sequences emitted")
     args = ap.parse_args()
     pack_dataset(args.out, args.seq_len, args.model, data_dir=args.data,
+                 split=args.split, streaming=args.streaming,
                  assistant_only=args.assistant_only,
                  max_seqs=args.max_seqs, max_packed=args.max_packed)
 
