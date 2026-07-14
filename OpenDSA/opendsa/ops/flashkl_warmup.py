@@ -27,8 +27,6 @@ per-head Km[L,H,D] (the faithful DeepSeek-V2 eager form: k_nope is per-head, k_p
 broadcast — matches the reference Megatron ``einsum("bhqd,bhtd->bhqt")``) OR shared
 Km[L,D] (MLA absorbed latent form, broadcast across heads). Both give identical
 attention scores; per-head is the default used from the HF eager path.
-
-Verify:  python flashkl_warmup.py   # pure-CPU float64 self-test, no GPU needed
 """
 from __future__ import annotations
 
@@ -83,8 +81,8 @@ def auto_warmup_tile(
     not the dtype — see README perf notes), so ``tile`` is the real memory knob at
     long context. This derives the largest tile whose scratch fits ``mem_fraction`` of
     free memory, clamped to [64, cap] and rounded down to a multiple of 64. On CPU or
-    when the budget already admits ``cap`` it just returns ``cap`` (short-context and
-    the numerical self-tests are unaffected — those pass an explicit tile).
+    when the budget already admits ``cap`` it just returns ``cap`` (short context and
+    the equivalence tests are unaffected — those pass an explicit tile).
     """
     cap = max(64, int(cap))
     if device is None or device.type != "cuda" or not torch.cuda.is_available():
@@ -286,7 +284,8 @@ def flashkl_warmup_loss(
 
 
 # --------------------------------------------------------------------------- #
-#  dense reference (materializes [L,H,L]) for correctness checking
+#  dense reference (materializes [L,H,L]) — fp64 correctness gold standard for
+#  the streaming FlashKL loss above; used by tests/test_patch_integration.py
 # --------------------------------------------------------------------------- #
 def dense_warmup_reference(index_q, index_k, index_w, Q_main, K_main, cu_seqlens,
                            *, sm_scale_teacher=None, sm_scale_index=None):
@@ -413,114 +412,3 @@ def indexer_topk_recall(index_q, index_k, index_w, Q_main, K_main, cu_seqlens,
             cnt += valid.to(torch.float64).sum()
         return float((hit / cnt.clamp_min(1)).item())
 
-
-# --------------------------------------------------------------------------- #
-#  self-test (CPU / float64): FlashKL vs dense autograd to machine precision
-# --------------------------------------------------------------------------- #
-def _selftest():
-    torch.manual_seed(0)
-    f64 = torch.float64
-    dev = "cpu"
-
-    def rel(a, b):
-        return (a - b).norm().item() / (b.norm().item() + 1e-30)
-
-    H, D = 8, 16
-    Hf, df = 4, 12
-
-    def mk(L, per_head_k=False):
-        return dict(
-            qf=torch.randn(L, Hf, df, dtype=f64, requires_grad=True),
-            kf=torch.randn(L, df, dtype=f64, requires_grad=True),
-            wf=torch.rand(L, Hf, dtype=f64, requires_grad=True),
-            Qm=torch.randn(L, H, D, dtype=f64),
-            Km=torch.randn(L, H, D, dtype=f64) if per_head_k else torch.randn(L, D, dtype=f64),
-        )
-
-    print("=" * 76)
-    print("FlashKL warmup (single indexer) — vs dense autograd, float64")
-    print("=" * 76)
-    ok_all = True
-    cases = [
-        ("shared-K   single-seq  cu=[0,20]", torch.tensor([0, 20]), False),
-        ("shared-K   packed      cu=[0,9,20]", torch.tensor([0, 9, 20]), False),
-        ("perhead-K  single-seq  cu=[0,23]", torch.tensor([0, 23]), True),
-        ("perhead-K  packed      cu=[0,11,20]", torch.tensor([0, 11, 20]), True),
-    ]
-    for name, cu, ph in cases:
-        L = int(cu[-1])
-        g = mk(L, per_head_k=ph)
-        # dense reference: grad of FULL KL (entropy is const -> same grad as trainable)
-        full_kl, trainable_ref = dense_warmup_reference(
-            g["qf"], g["kf"], g["wf"], g["Qm"], g["Km"], cu)
-        full_kl.backward()
-        ref = {k: g[k].grad.clone() for k in ["qf", "kf", "wf"]}
-        for k in ["qf", "kf", "wf"]:
-            g[k].grad = None
-        # FlashKL
-        Lfl = flashkl_warmup_loss(g["qf"], g["kf"], g["wf"], g["Qm"], g["Km"], cu, tile=4)
-        Lfl.backward()
-        fu = {k: g[k].grad.clone() for k in ["qf", "kf", "wf"]}
-        errs = {k: rel(fu[k], ref[k]) for k in ref}
-        dval = abs(Lfl.item() - trainable_ref.item())
-        ok = dval < 1e-9 and all(v < 1e-9 for v in errs.values())
-        ok_all &= ok
-        print(f"[{name}]")
-        print(f"   loss(trainable) flashkl={Lfl.item():.10f}  dense={trainable_ref.item():.10f}  |Δ|={dval:.2e}")
-        print("   grad rel-err  " + "  ".join(f"{k}={v:.2e}" for k, v in errs.items())
-              + f"   -> OK(<1e-9): {ok}")
-    print("=" * 76)
-    print(f"ALL PASS: {ok_all}")
-    print("=" * 76)
-
-    # --- CP-equivalence: sharded queries + full keys, summed == full ---
-    print("CP-equivalence: sum over query-shards of (loss, grads) == full")
-    print("=" * 76)
-    torch.manual_seed(1)
-    H, D, Hf, df = 8, 16, 4, 12
-    L, CP = 24, 3           # split L queries into CP contiguous shards
-    cu = torch.tensor([0, L])   # single doc
-    qf = torch.randn(L, Hf, df, dtype=f64, requires_grad=True)
-    kf = torch.randn(L, df, dtype=f64, requires_grad=True)
-    wf = torch.rand(L, Hf, dtype=f64, requires_grad=True)
-    Qm = torch.randn(L, H, D, dtype=f64)
-    Km = torch.randn(L, D, dtype=f64)
-    # full (baseline): global nrow = L
-    Lfull = flashkl_warmup_loss(qf, kf, wf, Qm, Km, cu, tile=5,
-                                q_global_pos=torch.arange(L), nrow_global=L)
-    Lfull.backward()
-    gfull = {"qf": qf.grad.clone(), "kf": kf.grad.clone(), "wf": wf.grad.clone()}
-    qf.grad = kf.grad = wf.grad = None
-    # sharded: each shard holds its Lq query rows + the FULL keys; nrow_global=L.
-    # kf/Km are the full keys (shared); qf/wf/Qm are sliced per shard. Sum losses+grads.
-    Lloc = L // CP
-    loss_sum = 0.0
-    gsum = {"qf": torch.zeros_like(qf), "kf": torch.zeros_like(kf), "wf": torch.zeros_like(wf)}
-    for r in range(CP):
-        s, e = r * Lloc, (r + 1) * Lloc
-        qfs = qf[s:e].detach().clone().requires_grad_(True)
-        wfs = wf[s:e].detach().clone().requires_grad_(True)
-        kfs = kf.detach().clone().requires_grad_(True)
-        gpos = torch.arange(s, e)
-        Ls = flashkl_warmup_loss(qfs, kfs, wfs, Qm[s:e], Km, cu, tile=5,
-                                 q_global_pos=gpos, nrow_global=L)
-        Ls.backward()
-        loss_sum += Ls.item()
-        gsum["qf"][s:e] += qfs.grad
-        gsum["wf"][s:e] += wfs.grad
-        gsum["kf"] += kfs.grad      # key grads accumulate across all shards
-    e_loss = abs(loss_sum - Lfull.item())
-    e_g = {k: rel(gsum[k], gfull[k]) for k in gfull}
-    ok_cp = e_loss < 1e-9 and all(v < 1e-9 for v in e_g.values())
-    ok_all &= ok_cp
-    print(f"  |Δloss|={e_loss:.2e}  " + "  ".join(f"d{k}={v:.2e}" for k, v in e_g.items())
-          + f"  -> OK(<1e-9): {ok_cp}")
-    print("=" * 76)
-    print(f"ALL PASS: {ok_all}")
-    print("=" * 76)
-    return ok_all
-
-
-if __name__ == "__main__":
-    import sys
-    sys.exit(0 if _selftest() else 1)

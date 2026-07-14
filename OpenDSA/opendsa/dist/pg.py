@@ -176,14 +176,6 @@ def zigzag_local_gpos(L: int, device) -> torch.Tensor:
     return torch.cat([lo, hi])
 
 
-def seq_offset(L_local: int) -> int:
-    """Deprecated under zigzag sharding (local tokens are not a contiguous global
-    range). Kept only for the trivial cp==1 case; use ``zigzag_local_gpos`` instead."""
-    if cp_size() == 1:
-        return 0
-    raise RuntimeError("seq_offset is invalid under zigzag CP; use zigzag_local_gpos")
-
-
 # --------------------------------------------------------------------------- #
 #  collectives
 # --------------------------------------------------------------------------- #
@@ -254,23 +246,6 @@ def all_to_all(x: torch.Tensor, group=None) -> torch.Tensor:
     return out
 
 
-def reduce_grads(params, group=None, op=dist.ReduceOp.SUM, scale: float = 1.0):
-    """In-place all-reduce of .grad over ``group`` for the given params (skips None).
-    Optional ``scale`` multiplies each grad after reduction (e.g. 1/global_tokens)."""
-    if not is_dist():
-        if scale != 1.0:
-            for p in params:
-                if p.grad is not None:
-                    p.grad.mul_(scale)
-        return
-    g = group or cp_group()
-    for p in params:
-        if p.grad is not None:
-            dist.all_reduce(p.grad, op=op, group=g)
-            if scale != 1.0:
-                p.grad.mul_(scale)
-
-
 def reduce_scatter_tensor(output: torch.Tensor, input: torch.Tensor,
                           op=dist.ReduceOp.SUM, group=None):
     """Thin wrapper over ``torch.distributed.reduce_scatter_tensor``. Requires
@@ -297,8 +272,3 @@ def all_gather_into_tensor(output: torch.Tensor, input: torch.Tensor, group=None
         output.copy_(input)
         return
     dist.all_gather_into_tensor(output, input.contiguous(), group=g)
-
-
-def barrier():
-    if is_dist():
-        dist.barrier(group=cp_group())

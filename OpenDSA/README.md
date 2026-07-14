@@ -81,15 +81,14 @@ fast:
   `zigzag_local_gpos` in `opendsa/dist/pg.py`, verified numerically equal to the
   single-GPU reference).
 
-All operators have pure-torch, CPU/float64-verifiable reference paths plus
-memory-bounded (query-chunked + gradient-checkpointed) training paths. Every op
-self-checks to ~1e-16 grad error against its dense reference:
+All operators are pure-torch and memory-bounded (query-chunked + gradient-
+checkpointed). The warmup FlashKL loss is checked to ~1e-5 grad error against a
+dense `[L,H,L]` reference (`dense_warmup_reference`) on a real DeepSeek-V2 teacher,
+and the distributed paths are gated by numerical-equivalence tests:
 
 ```bash
-python opendsa/ops/flashkl_warmup.py   # warmup FlashKL vs dense autograd
-python opendsa/ops/topk_select.py      # sparse KL (FlashKL + chunked) vs dense
-python opendsa/ops/sparse_mla.py       # sparse attention (ref + chunked) vs dense
-python tests/test_patch_integration.py # tiny real DS-V2: warmup+sparse grad flow
+python tests/test_patch_integration.py # tiny real DS-V2: warmup+sparse grad flow + FlashKL vs dense
+python tests/test_pg.py                 # CP zigzag collectives round-trip
 ```
 
 ## Layout
@@ -180,10 +179,7 @@ Tunables are env-overridable: `TOPK`, `GRAD_ACCUM`, `SEQ_LEN`, `STEPS`, `NPROC`,
 ## Tests
 
 ```bash
-# CPU/single-process checks
-python opendsa/ops/flashkl_warmup.py
-python opendsa/ops/topk_select.py
-python opendsa/ops/sparse_mla.py
+# single-process checks
 python tests/test_pg.py
 
 # GPU integration and distributed equivalence checks

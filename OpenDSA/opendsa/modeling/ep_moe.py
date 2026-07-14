@@ -116,10 +116,11 @@ def ep_moe_forward(self, hidden_states):
     y_sorted[order] = y_back
     y = (y_sorted.view(N, k, h) * topk_weight.unsqueeze(-1)).sum(1)    # weight + sum over k
     y = y.to(x.dtype).view(*orig_shape)
-    try:
-        from transformers.models.auto import modeling_auto  # noqa
-    except Exception:
-        pass
+    return _finish_moe(self, y, identity, aux_loss)
+
+
+def _finish_moe(self, y, identity, aux_loss):
+    """Shared MoE output tail: attach router aux loss + add shared-expert output."""
     y = _apply_aux(self, y, aux_loss)
     if getattr(self.config, "n_shared_experts", None) is not None:
         y = y + self.shared_experts(identity)
@@ -154,7 +155,4 @@ def _dense_routed(self, hidden_states):
                 y[m] = expert(xr[m])
     y = (y.view(*topk_weight.shape, -1) * topk_weight.unsqueeze(-1)).sum(1)
     y = y.to(x.dtype).view(*orig_shape)
-    y = _apply_aux(self, y, aux_loss)
-    if getattr(self.config, "n_shared_experts", None) is not None:
-        y = y + self.shared_experts(identity)
-    return y
+    return _finish_moe(self, y, identity, aux_loss)

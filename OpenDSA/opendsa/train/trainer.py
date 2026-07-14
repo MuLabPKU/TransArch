@@ -182,6 +182,16 @@ class DSATrainer(Trainer):
         true_kl = None if entropy is None else loss_f - ent_f
         return loss_f, true_kl
 
+    def _indexer_log_dict(self, model, ce, true_kl) -> dict:
+        """Common indexer log fields (ce + per-layer, and true-KL when available).
+        Shared by the warmup eager/sum paths and the sparse path."""
+        n_layers = self._dsa_num_layers(model)
+        d = {"indexer_ce": ce, "indexer_ce_per_layer": ce / n_layers}
+        if true_kl is not None:
+            d["indexer_true_kl"] = true_kl
+            d["indexer_true_kl_per_layer"] = true_kl / n_layers
+        return d
+
     def _dsa_num_layers(self, model=None) -> int:
         node = model if model is not None else self.model
         for _ in range(8):
@@ -299,29 +309,13 @@ class DSATrainer(Trainer):
             if reg._eager:
                 loss_val = reg.eager_loss_sum()
                 loss_log, true_kl = self._indexer_metrics_for_log(loss_val, ent, input_ids.device)
-                n_layers = self._dsa_num_layers(model)
-                log_d = {
-                    "indexer_ce": loss_log,
-                    "indexer_ce_per_layer": loss_log / n_layers,
-                }
-                if true_kl is not None:
-                    log_d["indexer_true_kl"] = true_kl
-                    log_d["indexer_true_kl_per_layer"] = true_kl / n_layers
-                self.log(log_d)
+                self.log(self._indexer_log_dict(model, loss_log, true_kl))
                 loss = torch.tensor(loss_val, device=input_ids.device)
                 return (loss, None) if return_outputs else loss
             loss = reg.total()
             if loss is not None:
                 loss_log, true_kl = self._indexer_metrics_for_log(loss, ent, input_ids.device)
-                n_layers = self._dsa_num_layers(model)
-                log_d = {
-                    "indexer_ce": loss_log,
-                    "indexer_ce_per_layer": loss_log / n_layers,
-                }
-                if true_kl is not None:
-                    log_d["indexer_true_kl"] = true_kl
-                    log_d["indexer_true_kl_per_layer"] = true_kl / n_layers
-                self.log(log_d)
+                self.log(self._indexer_log_dict(model, loss_log, true_kl))
             return (loss, None) if return_outputs else loss
 
         # sparse stage: run decoder stack ONLY (skip HF's built-in LM head +
@@ -353,23 +347,18 @@ class DSATrainer(Trainer):
         if idx_loss is not None:
             idx_log, true_kl = self._indexer_metrics_for_log(idx_loss, reg.entropy_sum(),
                                                              input_ids.device)
-            n_layers = self._dsa_num_layers(model)
             lm_loss_f = float(lm_loss.detach())
             lm_loss_scaled_f = lm_loss_f / cp if cp > 1 else lm_loss_f
             log_d = {
                 "total_loss": float(loss.detach()),
                 "lm_loss": lm_loss_f,
                 "lm_loss_cp_scaled": lm_loss_scaled_f,
-                "indexer_ce": idx_log,
-                "indexer_ce_per_layer": idx_log / n_layers,
+                **self._indexer_log_dict(model, idx_log, true_kl),
             }
-            # true KL = indexer_loss - teacher entropy (both per-layer sums). The
+            # true KL (in _indexer_log_dict) = indexer_loss - teacher entropy; the
             # logged indexer_ce is dominated by the incompressible teacher entropy
-            # (~7/layer); true KL is the real indexer-quality signal. It is present
-            # only when entropy diagnostics are enabled for this step.
-            if true_kl is not None:
-                log_d["indexer_true_kl"] = true_kl
-                log_d["indexer_true_kl_per_layer"] = true_kl / n_layers
+            # (~7/layer), so true KL is the real indexer-quality signal (present only
+            # when entropy diagnostics are enabled for this step).
             self.log(log_d)
         return (loss, None) if return_outputs else loss
 
@@ -418,7 +407,7 @@ class DSATrainer(Trainer):
         the true global gradient — reduce over the CP group with op=SUM, no /world.
         DDP mode (cp_size==1, data-parallel ranks): each rank sees different data, so
         **average** (SUM / world)."""
-        from ..dist import cp_size, cp_group, is_dist
+        from ..dist import cp_size, cp_group
         if not (dist.is_available() and dist.is_initialized() and dist.get_world_size() > 1):
             return
         params = [p for p in indexer_parameters(model) if p.grad is not None]
@@ -444,7 +433,7 @@ class DSATrainer(Trainer):
         replaces this all_reduce). Expert grads still need no reduction."""
         if self._zero2:
             return
-        from ..dist import cp_group, is_dist
+        from ..dist import cp_group
         from ..modeling import expert_parameters
         if not (dist.is_available() and dist.is_initialized() and dist.get_world_size() > 1):
             return

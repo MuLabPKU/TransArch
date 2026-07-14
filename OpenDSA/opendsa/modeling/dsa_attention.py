@@ -25,22 +25,14 @@ single causal sequence per batch row is assumed.
 """
 from __future__ import annotations
 
-import math
-from typing import Optional
-
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 
-from .indexer import LightningIndexer
 from ..ops import (
     flashkl_warmup_loss,
     auto_warmup_tile,
-    flashkl_sparse_loss,
     sparse_kl_chunked,
     indexer_select_topk,
-    sparse_attend_ref,
-    sparse_attend_chunked,
     sparse_attend_absorbed_chunked,
     indexer_topk_recall,
 )
@@ -213,11 +205,11 @@ def make_dsa_forward(orig_forward):
                     **kwargs):
         mode = getattr(self, "dsa_mode", "warmup")
         if mode == "warmup":
-            return _warmup_forward(self, orig_forward, hidden_states, attention_mask,
+            return _warmup_forward(self, hidden_states, attention_mask,
                                    position_ids, past_key_value, output_attentions,
                                    use_cache, **kwargs)
         elif mode == "sparse":
-            return _sparse_forward(self, orig_forward, hidden_states, attention_mask,
+            return _sparse_forward(self, hidden_states, attention_mask,
                                    position_ids, past_key_value, output_attentions,
                                    use_cache, **kwargs)
         else:  # "dense" — pristine base attention (eval baseline)
@@ -245,7 +237,6 @@ def _compute_teacher_qk(self, hidden_states, position_ids):
           .transpose(1, 2))
     k_nope, value_states = torch.split(kv, [self.qk_nope_head_dim, self.v_head_dim], dim=-1)
 
-    from transformers.models.auto import modeling_auto  # noqa (ensure transformers loaded)
     cos, sin = self.rotary_emb(value_states, seq_len=q_len)
     # apply_rotary_pos_emb is defined in the model's module; fetch via the class
     apply_rope = _get_apply_rotary(self)
@@ -331,7 +322,7 @@ def _indexer_rope_cossin(self, cos, sin, position_ids):
     return c, s
 
 
-def _warmup_forward(self, orig_forward, hidden_states, attention_mask, position_ids,
+def _warmup_forward(self, hidden_states, attention_mask, position_ids,
                     past_key_value, output_attentions, use_cache, **kwargs):
     if getattr(self, "cp_size", 1) > 1:
         return _warmup_forward_cp(self, hidden_states, position_ids)
@@ -362,9 +353,6 @@ def _warmup_forward(self, orig_forward, hidden_states, attention_mask, position_
     # tight (peak is O(Lq·H·tile) fp32 scratch), never exceeding it.
     warmup_tile = auto_warmup_tile(L, Qm.shape[2], getattr(self, "dsa_tile", 512), dev)
     losses = []
-    with torch.no_grad():
-        do_recall = getattr(self, "dsa_log_recall", False)
-        recalls = []
     for b in range(B):
         lb = flashkl_warmup_loss(
             q_idx[b], k_idx[b], w_idx[b],
@@ -438,7 +426,7 @@ def _warmup_forward_cp(self, hidden_states, position_ids):
     rank's indexer params; the CP-group all-reduce happens in the trainer). The LM
     path reconstructs full per-head K/V from the gathered latent and runs local-Q
     vs full-K/V causal flash attention -> local hidden for the next layer."""
-    from ..dist import cp_size, cp_rank, zigzag_local_gpos, all_gather_seq
+    from ..dist import cp_size, zigzag_local_gpos, all_gather_seq
     B, Lloc, _ = hidden_states.shape
     assert B == 1, "CP warmup assumes batch size 1 (packed long-context)"
     dev = hidden_states.device
@@ -565,7 +553,7 @@ def _cp_doc_causal(cu_full, gpos):
     return cu[d], p + 1
 
 
-def _sparse_forward(self, orig_forward, hidden_states, attention_mask, position_ids,
+def _sparse_forward(self, hidden_states, attention_mask, position_ids,
                     past_key_value, output_attentions, use_cache, **kwargs):
     if getattr(self, "cp_size", 1) > 1:
         return _sparse_forward_cp(self, hidden_states)
@@ -638,7 +626,7 @@ def _sparse_forward_cp(self, hidden_states):
     selected over the full gathered indexer keys (indices are GLOBAL positions);
     sparse MLA attends the gathered latent; the indexer KL trains on the selected set.
     LM output is the local [Lloc,...] hidden for the next layer."""
-    from ..dist import cp_size, cp_rank, zigzag_local_gpos, all_gather_seq
+    from ..dist import cp_size, zigzag_local_gpos, all_gather_seq
     B, Lloc, _ = hidden_states.shape
     assert B == 1, "CP sparse assumes batch size 1 (packed long-context)"
     dev = hidden_states.device

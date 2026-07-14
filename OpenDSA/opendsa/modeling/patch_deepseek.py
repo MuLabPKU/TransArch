@@ -22,11 +22,10 @@ the DeepSeek-V2 MLA attributes (q_lora_rank, kv_lora_rank, num_heads, ...).
 from __future__ import annotations
 
 import types
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 import torch
-import torch.nn as nn
 
 from .indexer import LightningIndexer
 from .dsa_attention import make_dsa_forward, REGISTRY
