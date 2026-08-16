@@ -78,4 +78,4 @@ If you find our work useful, please cite the relevant paper(s):
 
 ## ⭐ Star History
 
-[![Star History Chart](https://api.star-history.com/chart?repos=MuLabPKU/TransArch&type=date&legend=top-left)](https://www.star-history.com/?repos=MuLabPKU%2FTransArch&type=date&legend=top-left)
+[![Star History Chart](https://star-history.dera.page/svg?repos=MuLabPKU/TransArch&type=date&legend=top-left)](https://star-history.dera.page/#MuLabPKU/TransArch&type=date&legend=top-left)
