@@ -1,0 +1,57 @@
+{
+  "vllm": {
+    "path": "vllm/model_executor/layers/sparse_attn_indexer.py",
+    "sha256": "9a414da00e628778f7016ffd1e6b15051be1364a2c9fa2cec754e8074b190eab",
+    "patched_sha256": "2c73fbe882ef72f7dd3ebef97c5be2d11e286ba02ff202b8b982711d34f13e3c",
+    "version": "0.26.0",
+    "model": {
+      "path": "vllm/model_executor/models/deepseek_v2.py",
+      "sha256": "f22d4458a604875fbc3fb194119519734b3f2b2460276ef2091419ed6988f1be",
+      "patched_sha256": "01b900fc3c5dfbf0e2530091ebdb431bfabd3abb9603a1234efb34af2cd3e909",
+      "class": "DeepseekV2Model"
+    },
+    "metadata": {
+      "path": "vllm/v1/attention/backends/mla/indexer.py",
+      "sha256": "39c17c192f5f04563a9b479acda04d26c5d77c5afc1dd793e7cd78ee75a3a63a",
+      "patched_sha256": "0d12c26677a0f351ff762f62f5d06534d522392a247529800160ad8a6a88cddb"
+    },
+    "repository_url": "https://github.com/vllm-project/vllm",
+    "revision": "568afb3a13806beb53bb2e6bd518269357b237c0",
+    "distribution_status": "official_release",
+    "tag": "v0.26.0",
+    "validation_status": "source_and_cpu_checks_only_gb200_pending"
+  },
+  "sglang": {
+    "path": "sglang/srt/layers/attention/dsa/dsa_indexer.py",
+    "sha256": "d85e2d176e6c27c0a7ecb156a4f91ac999757bd3b9b18cc8af7b9daef3f0aa6d",
+    "patched_sha256": "26b5222ed8322501f54e069362c92327952dce909feec2971fa54193e2c6e011",
+    "version": "0.5.21",
+    "model": {
+      "path": "sglang/srt/models/deepseek_v2.py",
+      "sha256": "74f67224cc3d3edcf465bea54af572ebd3b4fb9e784a6a38a445e59db6c58d7b",
+      "patched_sha256": "d66a20765b7943c3df2d3e82e7f143d31043f218c32b8185f00981b0bdf9aaac",
+      "class": "DeepseekV2Model"
+    },
+    "repository_url": "https://github.com/sgl-project/sglang",
+    "revision": "e00930c5489053f26d86b179cee0d087f846acbb",
+    "distribution_status": "official_release",
+    "tag": "v0.5.21",
+    "validation_status": "source_and_cpu_checks_only_gb200_pending",
+    "model_dependencies": {
+      "glm52": [
+        {
+          "path": "sglang/srt/models/glm4_moe.py",
+          "sha256": "1157d60dea9e2a9e1a7809f15488285cba8c325026f658fdc4882909b0b8f8a4"
+        },
+        {
+          "path": "sglang/srt/models/deepseek_common/deepseek_weight_loader.py",
+          "sha256": "34d73d632b1311f4013f4ca636a1324a67198a8695e086aaef0cec325d76edde"
+        },
+        {
+          "path": "sglang/srt/configs/model_config.py",
+          "sha256": "be3a0168bdd3b4a6b1f7778420b83f95c315535812b44e9422e1b48dd856a11e"
+        }
+      ]
+    }
+  }
+}

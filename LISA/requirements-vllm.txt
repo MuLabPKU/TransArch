@@ -1,0 +1,11 @@
+# Key versions from the GB200 smoke run: Python 3.12, CUDA 13.
+vllm==0.26.0
+torch==2.11.0
+triton==3.6.0
+transformers==5.16.1
+tokenizers==0.23.2
+flashinfer-python==0.6.14
+nvidia-cutlass-dsl[cu13]==4.6.0
+quack-kernels==0.6.3
+numpy==2.3.5
+ninja==1.13.2

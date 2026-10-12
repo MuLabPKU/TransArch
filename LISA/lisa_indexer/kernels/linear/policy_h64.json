@@ -1,0 +1,25 @@
+{
+  "carry_vote_cap": true,
+  "rules": [
+    {
+      "max_n": 65536,
+      "variant": "recovery",
+      "config": -1
+    },
+    {
+      "max_n": 131072,
+      "variant": "sync",
+      "config": 3
+    },
+    {
+      "max_n": 262144,
+      "variant": "main",
+      "config": 8
+    },
+    {
+      "max_n": 1048576,
+      "variant": "gatefinal",
+      "config": 4
+    }
+  ]
+}

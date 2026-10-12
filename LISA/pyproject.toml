@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lisa-indexer"
+version = "0.1.0a6"
+description = "LISA FP8 sparse-attention kernels with vLLM and SGLang adapters"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+requires-python = ">=3.10"
+dependencies = ["torch>=2.8", "triton>=3.4", "ninja"]
+
+[project.urls]
+Repository = "https://github.com/MuLabPKU/TransArch"
+Documentation = "https://github.com/MuLabPKU/TransArch/tree/main/LISA#readme"
+
+[tool.setuptools.packages.find]
+include = ["lisa_indexer*"]
+
+[tool.setuptools.package-data]
+lisa_indexer = ["kernels/**/*.cu", "kernels/**/*.cuh", "kernels/**/*.json",
+                "integrations/sources.json", "deepgemm.patch"]
