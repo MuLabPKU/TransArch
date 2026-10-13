@@ -138,4 +138,4 @@ python transmla/converter.py \
 
 # ⭐ Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=MuLabPKU/TransMLA&type=date&legend=top-left)](https://www.star-history.com/#MuLabPKU/TransMLA&type=date&legend=top-left)
+[![Star History Chart](https://star-history.dera.page/svg?repos=MuLabPKU/TransMLA&type=date&legend=top-left)](https://star-history.dera.page/#MuLabPKU/TransMLA&type=date&legend=top-left)
