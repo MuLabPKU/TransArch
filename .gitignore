@@ -14,8 +14,6 @@ debug
 build/
 develop-eggs/
 dist/
-!OpenDSA/opendsa/dist/
-!OpenDSA/opendsa/dist/**
 downloads/
 eggs/
 .eggs/
