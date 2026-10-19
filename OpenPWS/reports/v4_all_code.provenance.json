@@ -1,0 +1,42 @@
+{
+  "backend": "vllm",
+  "model": "<local>/DeepSeek-V4-Flash-0731",
+  "engine_options": {
+    "model": "<local>/DeepSeek-V4-Flash-0731",
+    "tensor_parallel_size": 8,
+    "enable_expert_parallel": true,
+    "trust_remote_code": true,
+    "max_model_len": 2048,
+    "max_num_seqs": 1,
+    "max_num_batched_tokens": 2048,
+    "gpu_memory_utilization": 0.92,
+    "enforce_eager": true,
+    "seed": 33377335,
+    "enable_prefix_caching": false
+  },
+  "versions": {
+    "torch": "2.13.0",
+    "vllm": "0.31.0",
+    "tilelang": "0.1.12",
+    "safetensors": "0.8.0",
+    "transformers": "5.17.0"
+  },
+  "model_config_sha256": "6c8f3d2d3b48707541b88f32f22ef3f0f8a6b57d8523281e2b8d3cdb0ae9a023",
+  "model_index_sha256": "98efab455cf08dfbbbaaba6f570e1bf10bf927d2b4c3c453a59c2f6f0e3be92b",
+  "prompt_sha256": "f3a13efd59a20983f8a56f87eb1892af8fa4e4baccdb2bbe44c2327e076cf581",
+  "temperature": 0,
+  "max_tokens": 1,
+  "probabilities": "full-vocabulary softmax, not candidate normalization",
+  "engine_initialization_seconds": 119.68313915189356,
+  "deep_gemm_warmup": "skip",
+  "gpu": "NVIDIA L20Z",
+  "cuda": "13.0",
+  "source_sha256": {
+    "score_code.py": "913235a37bc0cc02add5c8a36a076dfc6021cf9af64d3ee082d3be4ce2ab7a32",
+    "inference.py": "1c6135f0f51faa94b0479103628554356553e7ad0446d82302e9acc4ce5404e6",
+    "paths.py": "6513df0dd6104238fad028502b5ad0ddb8b893260621ab74a4dfe499a51fe743"
+  },
+  "engram_config": null,
+  "evidence_status": "current_vllm_run",
+  "complete": true
+}

@@ -1,0 +1,13 @@
+{
+  "id": 2113,
+  "domain": "public transportation",
+  "domain_description": "Extensive data on route planning, fare collection, vehicle maintenance, and accessibility in public transportation.",
+  "sql_complexity": "subqueries",
+  "sql_complexity_description": "subqueries, including correlated and nested subqueries",
+  "sql_task_type": "analytics and reporting",
+  "sql_task_type_description": "generating reports, dashboards, and analytical insights",
+  "sql_prompt": "What is the distance between station 5 and station 12?",
+  "sql_context": "CREATE TABLE stations (station_id INT, name VARCHAR(255), latitude DECIMAL(9,6), longitude DECIMAL(9,6)); INSERT INTO stations (station_id, name, latitude, longitude) VALUES (5, 'Station 5', 40.712776, -74.005974), (12, 'Station 12', 40.718261, -74.004790);",
+  "sql": "SELECT 3959 * acos(cos(radians(stations.latitude)) * cos(radians((SELECT latitude FROM stations WHERE station_id = 12))) * cos(radians(stations.longitude) - radians((SELECT longitude FROM stations WHERE station_id = 12))) + sin(radians(stations.latitude)) * sin(radians((SELECT latitude FROM stations WHERE station_id = 12)))) as distance FROM stations WHERE station_id = 5;",
+  "sql_explanation": "This query calculates the distance between station 5 and station 12 using the Haversine formula, which is a great-circle distance approximation between two points on a sphere given their longitudes and latitudes."
+}

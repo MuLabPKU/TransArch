@@ -1,0 +1,37 @@
+# Downloaded models, generated inputs and local Python installations
+/models/
+/assets/
+/prompts/
+/.venv*/
+/runtime-python/
+/.cache/
+__pycache__/
+*.py[cod]
+
+# Experiments are exported deliberately to reports/ by report.py.
+/runs/
+/results/
+/reports/.report.lock
+/verification/
+/archive/
+/migration/
+/paper/
+/sources/*.parquet
+
+# Credentials, editor state and accidental large binaries
+.env
+.env.*
+!.env.example
+*.log
+*.safetensors
+*.pt
+*.pth
+*.npy
+*.npz
+*.bin
+.DS_Store
+.idea/
+.vscode/
+# CPFS/NFS keeps open, replaced files under these temporary names.
+.efc_*
+.nfs*

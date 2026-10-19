@@ -1,0 +1,72 @@
+{
+  "v4_official": {
+    "n": 96,
+    "correct": 18,
+    "complete": true,
+    "median_seconds": 3.5854511745128548,
+    "first_seconds": 83.41896282701055,
+    "scoring_seconds": 418.1648165381048
+  },
+  "v4": {
+    "n": 96,
+    "correct": 15,
+    "complete": true,
+    "median_seconds": 0.20438735047355294,
+    "first_seconds": 41.45915340539068,
+    "scoring_seconds": 142.0952857611701,
+    "sql_boundary_diagnostic": {
+      "n": 16,
+      "bare_or_space_prefixed_plus": 15,
+      "accepted_token_ids": [
+        13,
+        940
+      ]
+    },
+    "paper_abc": {
+      "n": 48,
+      "sign_agreement": 45,
+      "delta_mae": 0.22014288252632658
+    }
+  },
+  "v41": {
+    "n": 96,
+    "correct": 46,
+    "complete": true,
+    "median_seconds": 0.1252931310009444,
+    "first_seconds": 1.7295768649782985,
+    "scoring_seconds": 13.705260331917088,
+    "sql_boundary_diagnostic": {
+      "n": 16,
+      "bare_or_space_prefixed_plus": 0,
+      "accepted_token_ids": [
+        13,
+        940
+      ]
+    },
+    "paper_abc": {
+      "n": 48,
+      "sign_agreement": 47,
+      "delta_mae": 0.16552078098041995
+    }
+  },
+  "v4_backend_comparison": {
+    "top1_agreement": 92,
+    "changed_ids": [
+      "fp8_B_24",
+      "fp8_C_24",
+      "D_24_reconstructed",
+      "sql_27_reconstructed"
+    ],
+    "median_seconds_ratio": 17.542431888302207
+  },
+  "v4_niah": {
+    "n": 450,
+    "expected": 2048,
+    "complete": false
+  },
+  "v41_niah": {
+    "n": 0,
+    "expected": 20480,
+    "complete": false
+  }
+}
