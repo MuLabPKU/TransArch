@@ -11,7 +11,7 @@ Modern large language models are increasingly bottlenecked by communication rath
 | **TPLA** | ASPLOS 2026 | Tensor Parallel Latent Attention — partitions latent representations across devices, achieving 1.79×/1.93× speedup on DeepSeek-V3/Kimi-K2 | [arXiv](https://arxiv.org/abs/2508.15881) |
 | **HISA** | COLM 2026 | Hierarchical two-stage indexer for fine-grained sparse attention, achieving 2×–4× speedup at 32K–128K context | [arXiv](https://arxiv.org/abs/2603.28458) |
 | **MISA** | Preprint | Mixture-of-experts routing over DSA indexer heads — matches dense DSA with 8×/4× fewer indexer heads and ~3.82× kernel speedup on H200 | [arXiv](https://arxiv.org/abs/2605.07363) |
-| [**MISA-2**](MISA-2/) | Preprint | Shared linear expert with routed residual corrections for sparse indexing; 2.43× end-to-end TTFT speedup over DSA at 1M context. | [PDF](MISA-2/resmisa.pdf) |
+| **MISA-2** | Preprint | Shared linear expert with routed residual corrections for sparse indexing; 2.43× end-to-end TTFT speedup over DSA at 1M context. **Code coming soon.** | [PDF](MISA-2/resmisa.pdf) |
 | **LISA** | Preprint | Training-free head-fused linear indexing for sparse attention; 4.13× TTFT speedup over DSA at 1M context (5.20× with cross-layer candidate sharing). | [PDF](LISA/lisa.pdf) |
 | **GQLA** | Preprint | Group-Query Latent Attention — one set of weights, two decoding paths (MQA-absorb for H100, GQA+MTP for H20), with up to 8-way TP | [arXiv](https://arxiv.org/abs/2605.15250) |
 | [**OpenPWS**](OpenPWS/) | Reproduction | Independent vLLM reproduction of DeepSeek V4/V4.1 phase-sensitivity experiments, with pinned inputs and an auditable report | [arXiv](https://arxiv.org/abs/2609.36322v1) |
@@ -30,7 +30,7 @@ Modern large language models are increasingly bottlenecked by communication rath
 ## 📋 To-Do
 
 - [ ] Release TPLA code
-- [x] Release MISA-2 (ResMiSA) inference code
+- [ ] Release MISA-2 (ResMiSA) code — coming soon
 - [x] Release LISA code
 
 ## 📚 Citation
