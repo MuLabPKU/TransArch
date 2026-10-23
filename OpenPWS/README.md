@@ -1,201 +1,294 @@
-# OpenPWS: Reproducing Periodic Weak Spots
+# Periodic Weak Spots: Phase Sensitivity from Chunked KV-Cache Compression
 
-**OpenPWS** is an independent reproduction of the code-completion and 128K key-value retrieval experiments for two post-trained models in [Periodic Weak Spots: Phase Sensitivity from Chunked KV-Cache Compression](https://arxiv.org/abs/2609.36322v1): `DeepSeek-V4-Flash-0731` (V4) and `DeepSeek-V4.1-Flash` (V4.1). Both models use **vLLM** with the original Hugging Face weights. Conversion to the official tensor-parallel checkpoint format is unnecessary.
+**Local reproduction and GLM extension:** see [extension/README.md](extension/README.md)
+for GLM-5.3-Flash, block-indexer / HISA / DSA, the exact default scoring rule,
+saved observations, and reproducible plots. The original author implementation
+and configurations below are unchanged from commit `09c1099`.
 
-The goal is to reproduce the published experiments as closely as the available information permits. **Fully specified text follows the paper; unpublished details are explicitly identified as choices made by this project.** This repository does not cover the small-model pretraining, mechanistic analysis, V4 Base/Pro models, or V3.1 control in the paper. The 96 code prompts are variants of a few examples, not a general code-completion benchmark.
+[![arXiv](https://img.shields.io/badge/arXiv-2609.36322-b31b1b.svg?style=flat)](https://arxiv.org/abs/2609.36322)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-## Reproduction fidelity
+Xingyu Zhu\*, Pu (Luke) Yi\*, Ziheng Cheng\*, Ang Lv\*, Jing Liu, Lexing Ying,
+Yiyuan Ma, and Xin Dong
 
-The reference is **version 1, Appendices B.1–B.3 and C.1, Tables 1–7**. “Matches” below means consistent with the published text and token-coordinate constraints. The complete original input files are unavailable, so byte-for-byte equality with the author inputs cannot be claimed.
+\*Core contributors.
 
-| Component | Published details followed here | Uncertain details or choices made by this project | Valid comparison |
-|---|---|---|---|
-| FP8 A/B/C: 48 prompts | B.2 instruction, non-thinking chat prefix, 974+9 source-token split, fixed sentences, and symbol increments; filler lengths 23–38; target position `1004+L`; token IDs 20199/26/2111 for `FP`/`8`/`32` | No additional prompt wording is needed; the original author token files remain unavailable | Compare A/B/C probability differences and signs by length with Table 2, right, and Table 4, left; account separately for backend differences |
-| FP8 D at 24 tokens: 1 prompt | Complete comment sentence in Table 1, with the same B.2 instruction, source, and template | No additional wording is needed for this endpoint | Only this endpoint supports a direct comparison with the corresponding D entry |
-| Other FP8 D variants: 15 prompts | Natural-language comments of 23–38 tokens, with similar meaning and no repeated-symbol padding | The other paraphrases are unpublished; `make_extra_prompts.py` generates them using a fixed enumeration rule | Tests the phenomenon under reconstructed prompts; not a pointwise replication of the paper’s D sweep |
-| Omarchy: 16 prompts | B.3.1 repository/commit, source file, completion point `setup_scenario docked `, reference `0`, competitor `1`, and natural comments of 24–39 tokens | The paper provides an abbreviated example, not the full prompt or 16 fillers; this project uses the full source prefix and constructs the instruction, comments, and assistant-prefill split | Qualitative supplementary experiment; disagreement with Table 5 does not establish a failed model replication |
-| SQL: 16 prompts | B.3.2 test record 2113 (zero-based row 2112), schema/data/SQL, `+`/`-` contrast, both recorded output values and labels, and comments of 24–39 tokens | The published SQL excerpt contains omissions and adjusted line breaks; this project constructs the full wrapper instruction, comment sweep, layout, and prefill split | Qualitative supplementary experiment; Table 6 is not a pointwise prediction reference for these reconstructed prompts |
-| V4 128K retrieval: 2,048 prompts | C.1 context length of 128,000 tokens, 16,000 pairs per prompt, four-token records, target at pair 249, eight residue groups, prefill histograms, reversed sentence-pair roles, terminal query, and filler corpus/revision | Seed `260936322`, sampled keys/values/sentences and their assignment order, intro and three examples, and body/tail text are chosen here; filler lengths include the trailing newline; keys and values are sampled independently without replacement | Compare phase effects and their scale under the published protocol; these are not the original author retrieval inputs |
-| V4.1 128K retrieval: 20,480 prompts | C.1 uses ten times as many bindings and 2,560 prompts per group, with the same other published constraints | This project repeats the finite histograms in ten complete blocks of 256 bindings as its implementation of scaling the same distribution; the actual author sample is unknown | Same limitation as V4; the two models do not receive identical input sets |
-| Weights and backends | Model names match B.2; V4.1 uses vLLM TP8 with expert parallelism, matching the backend category in the paper | Downloads are pinned to revisions here, but the paper does not publish hashes for every weight file; V4 uses vLLM TP8 here and official TileLang TP4 in the paper; kernels, quantization, and parallelism differ | Identical inputs do not imply identical floating-point outputs; backend differences contribute to V4 discrepancies |
+**Paper:** [arXiv:2609.36322](https://arxiv.org/abs/2609.36322) ·
+[PDF](https://arxiv.org/pdf/2609.36322) · [Citation](#citation)
 
-Published information is sufficient to determine the construction of **49/96 code prompts**: 48 from A/B/C and the 24-token D endpoint. The other 47 include text constructed by this project. Generated inputs and results retain a `fidelity` field. Paper curves are plotted only for the directly comparable A/B/C variants and the single D endpoint.
+## Overview
 
-**Known mismatch: the SQL token boundary.** The frozen reconstruction retains a space at the completion boundary and scores bare `+`/`-` tokens, while the observed top-1 predictions are space-prefixed ` +`/` -`. The original 0/16 token accuracy therefore does not mean that every predicted operator is wrong. The report preserves that metric and adds a separate spelling diagnostic. These probabilities are not compared directly with Table 6 without the complete author prompts. Revising the boundary requires a new input version and a new run; probabilities for space-prefixed tokens cannot be recovered from the two recorded bare-token probabilities.
+**Chunked KV-cache compression.** To save memory and attention cost on long
+contexts, models such as DeepSeek-V4 merge consecutive tokens into fewer cache
+entries: each entry summarizes a window of `W` tokens, and a new entry is
+formed every `S` tokens (the stride). A token's **phase** is its position
+relative to the window boundaries, `t mod S`. With `W = S = 4`:
 
-The FP8 example uses `inference/kernel.py` from the paper’s footnote and verifies its SHA256 during preparation. The file in the pinned model download is identical to the source at the paper’s revision, `0c18385a15b3b34253d6cf7132f3f4a0442d4ea9`. Fixed hashes for source files, tokenizers, filler text, and generated inputs are listed in [resources.json](resources.json).
-
-Documentation and report labels are in English. Experimental strings and raw model outputs are preserved verbatim, including Unicode delimiters and non-English tokens selected by the tokenizer, because translating them would change the experiment.
-
-### Metrics and controls
-
-- **Code completion:** take `P(gold)` and `P(competitor)` from the full vocabulary distribution and report `Δ=P(gold)-P(competitor)` plus full-vocabulary top-1 accuracy. The two candidate probabilities are not renormalized. Generation uses `temperature=0, max_tokens=1`.
-- **Retrieval:** use `temperature=0, max_tokens=8` and exactly `completion.strip().startswith(gold)` as the primary metric. Punctuation after the answer is allowed; a colon before it is not removed. A separate leading-colon diagnostic never replaces the primary metric.
-- **Positions:** the source key starts at `63976+prefill_tokens`. Every residue group has mean source position 64,000 and variance 28. The query starts at 127,967 and total length is 128,000. `mod 8` defines reporting groups; the native compression strides are 4 for V4 and 2 for V4.1.
-- **Interpretation:** outer padding moves the target and distractor records together, so the comparison does not isolate the target position. Confidence intervals follow the paper’s per-group Wilson 95% intervals; they are not a separate causal analysis.
-
-## Reproduce from a fresh environment
-
-```bash
-git clone https://github.com/MuLabPKU/TransArch.git
-cd TransArch/OpenPWS
+```text
+position t      0 1 2 3 | 4 5 6 7 | 8 9 10 11 | ...
+phase t mod 4   0 1 2 3 | 0 1 2 3 | 0 1  2  3 | ...
+cache entry       e0    |   e1    |    e2     | ...
 ```
 
-Run all commands from the repository root. Requirements are Linux x86_64, Python 3.12, and a CUDA environment compatible with the pinned vLLM/PyTorch versions. GPU experiments also need a working CUDA compilation toolchain because kernels are compiled on first use. The tested configuration is **8× NVIDIA L20Z (SM90, about 79 GiB per GPU), CUDA 13.0, vLLM 0.31.0, PyTorch 2.13.0, and TileLang 0.1.12**. This is the validated configuration; fitting the 128K workload on smaller GPUs has not been verified.
+Windows may also overlap (`W > S`); DeepSeek-V4's CSA kernel uses `W = 8`,
+`S = 4`.
 
-The two models require about 631 GiB of weights, and retrieval arrays plus bindings take about 12 GiB. Allow roughly 1 TB of disk space, including the Python/CUDA environment and download caches, and sufficient host memory. Preparing both retrieval sets retokenizes about 2.88 billion tokens, so CPU preparation also takes time. Current V4 128K inference takes about six seconds per prompt, making a full evaluation several hours long. V4.1 has ten times as many prompts; use the small checks below before a full run.
+**Finding.** Long-context retrieval accuracy varies sharply and periodically
+with the phase of the information to be retrieved. In a controlled 128K
+needle-in-a-haystack test, accuracy in DeepSeek-V4 models differs by up to 40
+percentage points across phases, a gap that average benchmark scores conceal.
 
-```bash
-# 1. Create an isolated environment and install pinned direct dependencies.
-bash setup.sh
+**Evidence.**
 
-# 2. Download pinned models and public data, construct inputs,
-#    and independently verify positions, tokenization, and hashes.
-#    Without --weights, only the small model resources are downloaded.
-bash python.sh prepare.py --model both --stage all --weights
+- *Controlled pretraining.* Models with the Qwen3-0.6B architecture, pretrained
+  from scratch with chunked KV compression as the only substantial change,
+  reproduce the effect across compression designs, with a period that follows
+  the stride. Full-attention baselines show no comparable periodicity.
+- *Causal interventions.* KV-head knockouts in the pretrained models and
+  query-suffix knockouts in DeepSeek-V4-Flash-Base show that attention
+  components contribute unequally to retrieval at different phases. Cycling
+  the learned compression gates largely shifts the weak within-window phases.
+- *Theory.* In idealized retrieval models, gradient flow can favor sharp phase
+  specialization.
 
-# 3. Run code and retrieval experiments sequentially for both models.
-bash run_suite.sh all both
+**Takeaway.** Evaluate models with chunked KV-cache compression across
+compression phases: high average accuracy can coexist with systematic
+positional failures.
 
-# 4. Rebuild tables and figures from your results and update this README.
-bash python.sh report.py --from-results results --plots
+## What's in This Repository
+
+This is the minimal public release accompanying the paper. It contains:
+
+- the balanced 128K NIAH constructor, validator, and vLLM scorer (Section 2, Appendix C.1);
+- the Prefix Padding and In-sequence Padding NIAH constructors and scorer for the Qwen3-based models (Appendix C.2–C.3);
+- the Qwen3-KVC model and the configurations of every pretrained model in the paper (Appendix D, Table 8);
+- the causal interventions: KV-head knockouts in the Qwen3-based models (Appendix E), query-suffix knockouts in DeepSeek-V4 (Appendix E.6), and gate cycling (Appendix H).
+
+It does **not** include checkpoints, a training recipe or pretraining data,
+generated prompts, the code-completion examples of Section 2.1, the
+gate-preference analysis of Section 4.2 and Appendix G, confidence intervals,
+or plotting code. The pretraining setup is described in Appendix D.
+
+```text
+periodic_weak_spots/
+├── periodic_weak_spots/
+│   ├── model/              # Qwen3-KVC configuration and implementation
+│   ├── niah_128k/          # balanced 128K constructor, validator, vLLM scorer
+│   ├── niah_0p6b/          # Qwen3-based NIAH constructors and HF scorer
+│   ├── interventions/      # head knockouts, suffix knockouts, and gate cycling
+│   ├── balanced_lengths.py # residue-balanced length designs
+│   └── tokenization.py     # pinned HF tokenizers with GigaToken encoding
+├── configs/
+│   ├── model/              # every pretrained model in the paper
+│   ├── niah_128k/          # evaluation and calibration profiles
+│   ├── niah_0p6b/          # evaluation and calibration suites for both protocols
+│   └── interventions/      # gate-cycling conditions
 ```
 
-No original parent project, Qwen project, historical backend, manual checkpoint copy, or private dataset is required. Public resources must be accessible through Hugging Face. Downloads use fixed revisions; mismatched resource hashes cause preparation to fail.
+Tokenization uses [GigaToken](https://pypi.org/project/gigatoken/), a parallel
+Rust encoder that produces the same token IDs as the Hugging Face fast
+tokenizer.
 
-To run one model or one task:
+## Requirements and Install
 
-```bash
-bash python.sh prepare.py --model v4 --stage code --weights
-bash run_suite.sh code v4
+- Linux with NVIDIA GPUs for scoring and interventions. The locked PyTorch
+  2.14.1 is the default PyPI build for CUDA 13.0 (NVIDIA driver ≥ 580, Turing or
+  newer); FlexAttention also needs a C compiler for Triton. Data construction
+  runs on any machine, including macOS.
+- DeepSeek-V4 over 128K prompts needs an 8-GPU node.
+- All pinned Hugging Face models and datasets are public and ungated.
 
-bash python.sh prepare.py --model v4 --stage niah
-bash run_suite.sh niah v4
-# Use prepare.py --offline to reuse resources already downloaded.
-# Replace v4 with v41 as needed.
-# Stage: all / code / niah. Model: v4 / v41 / both.
-```
-
-Both tokenizers/configurations are downloaded even for a V4-only run so that input-token equivalence can be checked. Only the selected models download weights. Set `DEEPSEEK_MODELS` to override the model directory, or set `DEEPSEEK_V4_MODEL` and `DEEPSEEK_V41_MODEL` separately. Suite defaults are `TP=8`, `GPU_MEMORY_UTILIZATION=0.92`, and `MAX_NUM_BATCHED_TOKENS=8192`; the effective token-batch cap for code completion is 2048. Treat changes in environment, hardware, or parameters as a new experiment.
-
-### Resume and smoke tests
-
-Each inference result is appended immediately to `results/*.jsonl`. Restarting the same command skips completed IDs. Changes to the model configuration, weight index, input, or engine settings are rejected when resuming. Preserve earlier results and use an empty output directory for a new configuration. `--limit` is for small checks: partial runs are not marked complete and must not overwrite a complete report.
+Tested with Python 3.11, torch 2.14.1, transformers 5.19.0, and datasets 5.1.0.
 
 ```bash
-bash python.sh score_code.py --model models/DeepSeek-V4-Flash-0731 \
-  --output results/smoke_code.jsonl --limit 2
-bash python.sh run_niah.py --model models/DeepSeek-V4-Flash-0731 \
-  --data prompts/niah_v4 --output results/smoke_niah.jsonl --limit 2
-bash python.sh -m unittest discover -p 'test_*.py'
+uv sync --locked --python 3.11
+source .venv/bin/activate    # or prefix commands with `uv run`
 ```
 
-`prepare.py` resumes incomplete retrieval construction and verifies completed arrays. The lower-level `make_niah.py --limit 8` option supports preparation smoke tests; only complete datasets that pass `validate_niah.py` may enter inference. Do not modify validated arrays in place.
-
-`VLLM_DEEP_GEMM_WARMUP=skip` is the default to avoid warming many unused shapes at startup. Kernels initialize when actually needed, so first-prompt timing includes initial compilation. Model loading is recorded separately in `.provenance.json`. The warmup setting is also recorded and can be overridden through the environment.
-
-### Rebuild the saved report without a GPU
+vLLM pins its own PyTorch, so the 128K behavioral scorer (`niah_128k score`)
+runs from a second environment; everything else uses the main one.
 
 ```bash
-# Tables, completeness flags, and metrics: Python standard library only.
-# No model download is needed.
-python3 report.py
-
-# Rebuild figures and CSV files in a CPU environment.
-bash setup.sh cpu
-bash python.sh report.py --plots
+uv venv --python 3.12 .venv-vllm
+uv pip install --python .venv-vllm/bin/python -e . "vllm>=0.22"
 ```
 
-`reports/` contains per-example observations, provenance with local paths removed, metrics, figures, and hashes. `--from-results results` exports your observations into this directory. A complete saved run cannot be silently replaced with partial results. The default `report.py` command rebuilds the saved report without starting GPU inference.
+## Quick Start
 
-Only a small set of observations from the historical official V4 backend is retained for comparison; its code, logs, and conversion workflow are omitted. Its statistics can be recomputed from those observations, but the vLLM commands above do not rerun that backend. Historical V4.1 observations, if still used, are explicitly labeled beneath the results table.
+```bash
+# Qwen3-based NIAH: 1,000 logical examples, each at all 24 residues.
+python -m periodic_weak_spots.niah_0p6b build --config configs/niah_0p6b/prefix_padding.json --output data/prefix_padding
+python -m periodic_weak_spots.niah_0p6b build --config configs/niah_0p6b/in_sequence_padding.json --output data/in_sequence_padding
+python -m periodic_weak_spots.niah_0p6b score --suite data/prefix_padding --model runs/reference
 
-### Validated reproduction workflow
+# 128K NIAH: 8 residues x 256 prompts.
+python -m periodic_weak_spots.niah_128k build --config configs/niah_128k/evaluation.json --filler-file filler.txt --output data/niah_128k
+python -m periodic_weak_spots.niah_128k validate --dataset data/niah_128k
+.venv-vllm/bin/python -m periodic_weak_spots.niah_128k score --dataset data/niah_128k \
+  --model deepseek-ai/DeepSeek-V4-Flash-Base --tensor-parallel-size 8 --results results/niah_128k.json
+```
 
-A fresh directory containing only Git files and a newly created Python environment successfully downloaded the pinned public resources and rebuilt all 96 code prompts, the candidate vocabulary, and the complete 2,048-prompt V4 retrieval set. The final token-array hash matched the evaluation data and independent validation passed. For V4.1, all 2,560 binding sets and 16 complete prompts were checked, including an 8+8 resume; the remaining 20,464 prompts were not rebuilt in that clean-directory check. All seven tests, CPU plotting, and standard-library report regeneration passed. See [reproduction_checks.json](reports/reproduction_checks.json) for the scope. These checks validate input and report reconstruction; GPU completion is reported separately below.
+`niah_0p6b score` reports full-vocabulary and candidate accuracy by residue
+mod 24 and the best-minus-worst gap; `niah_128k score` reports answer-prefix
+accuracy by residue mod 8 and the gap, and `--results` also saves completions.
+`runs/reference` stands for any Qwen3-KVC checkpoint saved with
+`save_pretrained`.
 
-## Repository contents
+## Data
 
-| Files | Purpose |
-|---|---|
-| `prepare.py`, `resources.json` | Download pinned public resources, dispatch generators, and verify inputs |
-| `make_code_prompts.py`, `make_extra_prompts.py` | Generate the fully specified A/B/C construction and the other code prompts containing reconstructed text, respectively |
-| `make_niah.py`, `validate_niah.py` | Construct and independently validate 128K retrieval inputs; `prepare.py` builds the candidate vocabulary |
-| `inference.py`, `score_code.py`, `run_niah.py` | Shared vLLM configuration, provenance and resume handling, and the two evaluations |
-| `run_suite.sh` | Run tasks sequentially and update the report after each task |
-| `report.py`, `plot_results.py` | Compute metrics, plot results, and update this README |
-| `sources/` | Small pinned source examples and third-party licenses |
-| `reports/` | Report evidence and figures distributed with Git |
+**128K NIAH** (`configs/niah_128k/`, Appendix C.1). Each prompt has exactly
+128,000 tokens: 16,000 four-token `key:value。` records with single-token keys
+and values, and the target is record 248 (zero-based). A 48-token
+natural-sentence filler, split between a prefix and a postfix, sets the
+target's residue mod 8 while its mean position stays at 64,000; every residue
+cell has the same mean (24) and second moment (604) of prefix lengths, so
+residues differ only in phase. The eight residues cover two cycles of
+DeepSeek-V4's stride 4 and four of DeepSeek-V4.1-Flash's stride 2.
+`evaluation.json` is the paper's set and `calibration.json` the same design
+with disjoint seeds. Prompts are tokenized with `deepseek-ai/DeepSeek-V4-Flash`
+at revision `60d8d70`. Scoring uses raw text prompts, greedy decoding of 8
+tokens, and answer-prefix accuracy.
 
-`.gitignore` excludes `models/`, `assets/`, `prompts/`, `.venv/`, the local Python runtime, `results/`, `runs/`, caches, and large binaries. Git LFS is not required: weights, the 82 MB filler corpus, and large arrays are recovered by the preparation workflow. Project code uses the [MIT license](LICENSE); third-party attribution and licensing are documented in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+The paper evaluates `deepseek-ai/DeepSeek-V4-Flash-Base`,
+`DeepSeek-V4-Flash-0731`, `DeepSeek-V4-Pro-Base`, `DeepSeek-V4-Pro-0813`, and
+`DeepSeek-V4.1-Flash` (Table 7); its numbers may come from inference backends
+other than vLLM. For larger sets, such as the 2,560 prompts per residue used for
+DeepSeek-V4.1-Flash, copy a profile, set `dataset_role` to `custom` with unique
+`experiment_id` and `sample_prefix`, and scale `rows_per_phase` (a multiple of
+256), `sentence_pair_count` (4x), and `distinct_sentence_count` (8x).
 
-<!-- REPORT:START -->
+The filler text for padding is not redistributed. The paper used the Paul
+Graham essay haystack of the standard NIAH benchmark (sha256
+`51eaf041f492d8fdfdcf87be8756d23888eda0d3cab6816b3c3f11e7682de337`); `build`
+reports whether your `--filler-file` matches. Natural sentences come from
+[`agentlans/high-quality-english-sentences`](https://huggingface.co/datasets/agentlans/high-quality-english-sentences)
+(ODC-BY).
 
-## Experimental results
+**Qwen3-based NIAH** (`configs/niah_0p6b/`, Appendix C.2–C.3). Each prompt has
+64 animal-to-name pairs, the target at index 24, and 8 in-context
+demonstrations, under the Qwen3-0.6B tokenizer. A residue-balanced length
+design controls the source key's residue `r = t_K mod 24`.
 
-These tables are computed from the saved per-example results by `python3 report.py`. Incomplete runs show progress only; missing observations are never replaced with values from the paper.
+- **Prefix Padding:** natural sentences of 24–120 tokens set the prefix; prefix and postfix total 144 tokens.
+- **In-sequence Padding:** 24 `｜` guard tokens on each side, and 126 more spread over the gaps between records, at most 4 per gap.
 
-### Code completion (96 prompts per model)
+Each protocol has an evaluation suite (logical examples `[0, 1000)`) and a
+calibration suite (`[1000, 2000)`, `*_calibration.json`) for the knockouts.
 
-| Run | Completed | Full-vocabulary top-1 accuracy | Median time per prompt |
-|---|---:|---:|---:|
-| V4 official backend, TP4 (historical reference) | 96/96 | 18/96 (18.75%) | 3.5855 s |
-| V4 vLLM TP8 | 96/96 | 15/96 (15.62%) | 0.2044 s |
-| V4.1 vLLM TP8 | 96/96 | 46/96 (47.92%) | 0.1253 s |
+## Models
 
-The V4.1 entries are from an earlier completed vLLM run. They have not yet been rerun as part of this backend migration; the full reproduction command recomputes them.
+`configs/model/` holds the 23 configurations behind the 26 runs of Table 8 (the
+reference was trained with seeds 42–45) and the W12/S12 model with four KV
+heads used for gate cycling (Appendix H.2).
 
-| Prompt family | V4 official reference | V4 vLLM | V4.1 vLLM |
-|---|---:|---:|---:|
-| A | 4/16 (25.00%) | 4/16 (25.00%) | 8/16 (50.00%) |
-| B | 4/16 (25.00%) | 3/16 (18.75%) | 8/16 (50.00%) |
-| C | 4/16 (25.00%) | 3/16 (18.75%) | 8/16 (50.00%) |
-| D | 2/16 (12.50%) | 1/16 (6.25%) | 16/16 (100.00%) |
-| omarchy | 4/16 (25.00%) | 4/16 (25.00%) | 6/16 (37.50%) |
-| sql | 0/16 (0.00%) | 0/16 (0.00%) | 0/16 (0.00%) |
+| Folder | Models |
+| --- | --- |
+| `full_attention/` | Full attention with 1, 4, and 8 KV heads |
+| `reference/` | W8/S8, 1 KV head, scalar gates, adaptive-softmax pooling, fixed SWA-16 |
+| `kv_heads/` | Reference with 2, 4, and 8 KV heads |
+| `geometry/` | W4/S4, W8/S4, W8/S6, W12/S12, and W12/S12 with 4 KV heads |
+| `operators/` | Tied K/V, uniform averaging, uniform averaging with tied K/V and postnorm, vector gates |
+| `position_norm/` | No Q/K norm, no gate biases, NoPE, RoPE on 16 dimensions |
+| `local_memory/` | Uncompressed open tail (1 and 8 KV heads), DeepSeek-style vector and scalar gates |
 
-**SQL token-boundary limitation:** this reconstruction scores bare `+` (ID 13) and `-` (ID 15), whereas the saved predictions use space-prefixed ` +` (ID 940) and ` -` (ID 565). The resulting zero strict token accuracy does not mean that every predicted operator is semantically wrong. The diagnostic below covers these known spellings only; it neither replaces the original metric nor estimates unrecorded probabilities.
+The configurations match the trained models; the two DeepSeek-style models
+apply RoPE to 16 of 128 head dimensions (`rope_dims: 16`).
 
-| Model | Top-1 is bare `+` or ` +` | Interpretation |
-|---|---:|---|
-| v4 | 15/16 | Full prompt and token boundary are not aligned with the original author inputs; no quantitative replication claim |
-| v41 | 0/16 | Full prompt and token boundary are not aligned with the original author inputs; no quantitative replication claim |
+```python
+from periodic_weak_spots.model import Qwen3KVCForCausalLM, load_research_model_config
 
-**Direct comparison with the published A/B/C construction (48 prompts)**
+model = Qwen3KVCForCausalLM(load_research_model_config("configs/model/reference/reference.json"))
+```
 
-| Model | Paper: reference token selected | This run: reference token selected | Matching signs of Δ | Mean absolute difference in Δ |
-|---|---:|---:|---:|---:|
-| v4 | 11/48 | 10/48 | 45/48 | 0.2201 |
-| v41 | 24/48 | 24/48 | 47/48 | 0.1655 |
+Importing `periodic_weak_spots.model` registers `qwen3_kvc` with the
+Transformers Auto classes. Training mode uses FlexAttention (call
+`model.prepare_flex_attention(sequence_length)` before `torch.compile`);
+scoring uses the eager path through `model.last_token_logits`. KV caching and
+padded batches are not supported.
 
-The paper rounds Δ to three decimal places, which limits the precision of this comparison. Δ=0 is treated as a tie; top-1 accuracy uses the actual generated token. The other D paraphrases and the full Omarchy and SQL prompts are unpublished, so those supplementary experiments are excluded from this per-example agreement calculation. The paper reports a predominantly four-token cycle for V4 and odd/even alternation for V4.1 in A/B/C. The plots below compare the observed probability differences.
+## Causal Interventions
 
-The published **D endpoint at L=24**:
+**KV-head knockouts** (Qwen3-KVC, Appendix E). A knockout replaces, at the
+scoring token, the attention outputs of every query head that reads one KV head
+(the `o_proj` input) with their mean over the calibration suite, then reruns
+the rest of the network. The sweep covers every `(layer, KV head)` and reports
+accuracy by residue mod 24 and the relative change from the clean model.
+`--means` caches the fitted means, and `--layers` splits the sweep.
 
-| Model | Paper Δ | Observed Δ | Observed top-1 correct |
-|---|---:|---:|---|
-| v4 | -0.829 | -0.123047 | No |
-| v41 | +0.124 | +0.000000 | Yes |
+```bash
+python -m periodic_weak_spots.niah_0p6b build --config configs/niah_0p6b/prefix_padding_calibration.json --output data/prefix_padding_calibration
+python -m periodic_weak_spots.interventions head-sweep --model runs/reference \
+  --calibration data/prefix_padding_calibration --suite data/prefix_padding \
+  --means runs/reference/head_means.pt --output results/head_knockouts.json
+```
 
-Top-1 agreement between the two V4 backends is 92/96 (95.83%); the ratio of median per-prompt times is 17.54×. The runs use different GPU counts (4 versus 8) and quantized kernels, so this ratio is not an isolated measurement of backend speedup. Per-prompt timing includes on-demand compilation and excludes model loading; see `reports/metrics.json` for the timing statistics.
+**Query-suffix knockouts** (DeepSeek-V4, Appendix E.6). DeepSeek-V4 has one
+shared KV head per layer, so a knockout replaces a layer's whole attention
+readout, the output of `self_attn.o_b_proj`, at positions of the 16-token query
+suffix, which starts at the first occurrence of the query key. Calibration
+gives one mean per layer and suffix position; the four masks patch the first
+key, the second key (offset 13), both, or the full suffix. Prompts are
+tokenized as vLLM tokenizes raw text, with the tokenizer's default leading
+special tokens (`--no-special-tokens` omits them), so the knockouts see the
+same tokens as `niah_128k score`. Each prompt's 127,984-token prefix, plus any
+leading special tokens, is prefilled once in 1,024-token chunks and its cache
+forked for every suffix forward. Because outputs vary with batch size, the four
+masks of a layer run as one batch, each compared with the same slot of a clean
+batch of four. Scores are top-1 accuracy, logit, and NLL of the gold target
+token. This runs in Hugging Face Transformers with expert parallelism on one
+8-GPU node:
 
-Prompts with changed top-1 predictions: `fp8_B_24`, `fp8_C_24`, `D_24_reconstructed`, `sql_27_reconstructed`.
+```bash
+python -m periodic_weak_spots.niah_128k build --config configs/niah_128k/calibration.json --filler-file filler.txt --output data/niah_128k_calibration
+torchrun --nproc-per-node 8 -m periodic_weak_spots.interventions suffix-means \
+  --model deepseek-ai/DeepSeek-V4-Flash-Base --calibration data/niah_128k_calibration \
+  --rows-per-residue 40 --output results/suffix_means.pt
+torchrun --nproc-per-node 8 -m periodic_weak_spots.interventions suffix-sweep \
+  --model deepseek-ai/DeepSeek-V4-Flash-Base --evaluation data/niah_128k \
+  --means results/suffix_means.pt --output results/suffix_rows.jsonl
+python -m periodic_weak_spots.interventions suffix-summary \
+  --rows results/suffix_rows.jsonl --output results/suffix_summary.json
+```
 
-The current V4 environment uses SM90 hardware with MARLIN MXFP4 expert kernels, FlashMLA FP8 KV storage, and an FP8 indexer. The historical official backend simulates an FP4 indexer; the MXFP4 indexer in vLLM 0.31.0 requires SM10x hardware. The numerical results differ, and these experiments do not isolate indexer precision as the cause.
+`suffix-sweep` resumes from its output file, and `--shard INDEX/COUNT` splits
+prompts across nodes for `suffix-summary` to merge. Figure 4c uses 256
+evaluation prompts per residue.
 
-![v4 code phase](reports/v4_code_phase.png)
+**Gate cycling** (Appendix H). In models with adaptive-softmax gates and
+`W = S`, cycling by `delta` applies the gate map and bias of window offset `i`
+at offset `(i + delta) mod W`. If retrieval follows the gates, accuracy by phase
+shifts as `A_delta(r) ≈ A_0((r - delta) mod S)`. The config cycles the key and
+value gates of layers 3–23 by ±1, ±2, and ±3; each condition reports accuracy
+by phase, the prediction, and `translation_r2` excluding the boundary phase as
+in H.2 (`observed_or_source`) or H.3 (`observed`), or over all phases (`none`).
 
-![v41 code phase](reports/v41_code_phase.png)
+```bash
+python -m periodic_weak_spots.interventions gate-cycling --model runs/w12s12_4kv \
+  --suite data/prefix_padding --config configs/interventions/gate_cycling.json --output results/gate_cycling.json
+```
 
-### 128K key-value retrieval
+## Terminology
 
-The primary metric is exactly `completion.strip().startswith(gold)`. Each binding is tested in eight source-position residue groups, with 256 prompts per group for V4 and 2,560 for V4.1. The gap across groups is reported only after all groups are complete.
+| Here | Paper |
+| --- | --- |
+| residue, a row's `phase` field | source-key residue `r = t_K mod 24` (Qwen3-based suites) or mod 8 (128K) |
+| phase, `*_by_phase` outputs | `r mod S` for a model with stride `S` |
+| `compression_window`, `compression_stride` | `W`, `S` |
+| `c_*`, `z_*` | payload maps `C^B_i`; gate maps `Z^B_i` and positional gate biases `b^B_i` |
+| `compression_pooling: mean` | uniform averaging |
+| `kv_sharing` | tied K/V |
+| `gate_mode` | scalar or vector gates |
+| `rope_dims` | RoPE dimensions `d_r` |
+| `local_attention_mode: fixed_swa`, `swa_window_size` | fixed sliding window `T` |
+| `local_attention_mode: tail_concat` | uncompressed open tail |
 
-| Model | Saved / expected prompts | Status | Strict accuracy on saved prompts only |
-|---|---:|---|---:|
-| v4 | 450/2,048 | Incomplete; no full retrieval conclusion | 102/450 (22.67%) |
-| v41 | 0/20,480 | No observations yet | Not run |
+## Citation
 
-The paper reports retrieval gaps of 19.14 percentage points for V4 and 6.09 for V4.1. Prompt text, random seeds, and sampled records here reconstruct the published protocol, but cannot be assumed identical to the unpublished author inputs. No phase-effect conclusion is drawn from an incomplete run.
-
-<!-- REPORT:END -->
+```bibtex
+@article{zhu2026periodic,
+  title   = {Periodic Weak Spots: Phase Sensitivity from Chunked {KV}-Cache Compression},
+  author  = {Zhu, Xingyu and Yi, Pu and Cheng, Ziheng and Lv, Ang and Liu, Jing and Ying, Lexing and Ma, Yiyuan and Dong, Xin},
+  journal = {arXiv preprint arXiv:2609.36322},
+  year    = {2026}
+}
+```

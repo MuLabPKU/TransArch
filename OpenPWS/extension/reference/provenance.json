@@ -1,0 +1,180 @@
+{
+  "upstream_commit": "09c109910ba29b834f54441d96b442ab9e1634ae",
+  "description": "Historical completed runs; exported fields only, no prompts or local paths. Recompute scores from completion and gold. These are not reruns of the refactored code.",
+  "runs": {
+    "v4": {
+      "source_sha256": "f3002f62cb1c2fd910b308fcd1e64fa130a20e3690b5252c85301889280c7e08",
+      "export_sha256": "fe2492e88dde817d6c7c8ed1fce8aae4e54c1f150fa9c24701cf6860f018a999",
+      "rows": 2048,
+      "versions": {
+        "torch": "2.13.0",
+        "vllm": "0.31.0",
+        "transformers": "5.17.0",
+        "gigatoken": "0.10.0"
+      },
+      "data_sha256": {
+        "bindings.jsonl": "2f6619c0d1b9b6e4bc0732d186db00c2651ee90a83e4cf5eb06cdb1bf3aa0ea6",
+        "rows/key_value/phase_0.jsonl": "a578b92d8c06c6e97026707dae86527744eb51cf4883312f7be9947510089539",
+        "rows/key_value/phase_1.jsonl": "5091033185049b8408209ba2d79714b248834664c75ca46175a6072c254d1827",
+        "rows/key_value/phase_2.jsonl": "64fa8d338151286d5a6a445f89424465d02d64b290870396e28ad2f251bb1dd7",
+        "rows/key_value/phase_3.jsonl": "468f78797e246d905b7f3a845ec59af4b59e81efbd6707dc9a5ae8af2205884b",
+        "rows/key_value/phase_4.jsonl": "62ed28788cb6cacf4e802a686c13b81a3b85d01a87758530c7d07abbc33a80bc",
+        "rows/key_value/phase_5.jsonl": "d0a725dfb39d73b941f0e7a560ae51dfef850caa0d4b6d08b007681ad979370c",
+        "rows/key_value/phase_6.jsonl": "a1eb23fb81ee78e480e11d9700692ef85e8772f29f9229220a9b6a8ef2b7333e",
+        "rows/key_value/phase_7.jsonl": "bfcaff9bd3a5620cdedb0809948128663a945a08bad8f70ffeb2b4665905f46b",
+        "sentence_schedule.jsonl": "973d2fa7b95dcada48de804d55c3ea140b78705e9aa430a88d364b04b15f4298",
+        "metadata.json": "4328844e7c97c1c2289736d2af4269ec10d97edf2d9123c0df7444da992e0917"
+      },
+      "model_files_sha256": {
+        "config.json": "6c8f3d2d3b48707541b88f32f22ef3f0f8a6b57d8523281e2b8d3cdb0ae9a023",
+        "model.safetensors.index.json": "98efab455cf08dfbbbaaba6f570e1bf10bf927d2b4c3c453a59c2f6f0e3be92b",
+        "tokenizer.json": "8f9f37ca37fdc4f5fd36d5cf4d3b0e8392edb4e894fd10cc0d70b4957c8633cf",
+        "tokenizer_config.json": "6ac8c8dc065ed118161d02dd532749ae3f52c243deac27872134fae2f50d8547"
+      },
+      "source_code_sha256": {}
+    },
+    "v41": {
+      "source_sha256": "83c6db5a5ceb2c34b03b02cf53b6460e45c81d9e1b70a3e0c1efc6b5146f92c0",
+      "export_sha256": "5993c12b90e53f6039d1b1ffd7711690e2d241f5444a9d5cba7b4918f388103c",
+      "rows": 2048,
+      "versions": {
+        "torch": "2.13.0",
+        "vllm": "0.31.0",
+        "transformers": "5.17.0",
+        "gigatoken": "0.10.0"
+      },
+      "data_sha256": {
+        "bindings.jsonl": "2f6619c0d1b9b6e4bc0732d186db00c2651ee90a83e4cf5eb06cdb1bf3aa0ea6",
+        "rows/key_value/phase_0.jsonl": "a578b92d8c06c6e97026707dae86527744eb51cf4883312f7be9947510089539",
+        "rows/key_value/phase_1.jsonl": "5091033185049b8408209ba2d79714b248834664c75ca46175a6072c254d1827",
+        "rows/key_value/phase_2.jsonl": "64fa8d338151286d5a6a445f89424465d02d64b290870396e28ad2f251bb1dd7",
+        "rows/key_value/phase_3.jsonl": "468f78797e246d905b7f3a845ec59af4b59e81efbd6707dc9a5ae8af2205884b",
+        "rows/key_value/phase_4.jsonl": "62ed28788cb6cacf4e802a686c13b81a3b85d01a87758530c7d07abbc33a80bc",
+        "rows/key_value/phase_5.jsonl": "d0a725dfb39d73b941f0e7a560ae51dfef850caa0d4b6d08b007681ad979370c",
+        "rows/key_value/phase_6.jsonl": "a1eb23fb81ee78e480e11d9700692ef85e8772f29f9229220a9b6a8ef2b7333e",
+        "rows/key_value/phase_7.jsonl": "bfcaff9bd3a5620cdedb0809948128663a945a08bad8f70ffeb2b4665905f46b",
+        "sentence_schedule.jsonl": "973d2fa7b95dcada48de804d55c3ea140b78705e9aa430a88d364b04b15f4298",
+        "metadata.json": "4328844e7c97c1c2289736d2af4269ec10d97edf2d9123c0df7444da992e0917"
+      },
+      "model_files_sha256": {
+        "config.json": "8be45ce0476004a3f529fd896115a4a2e800a129ad2d3ec05b16050f52e21879",
+        "model.safetensors.index.json": "74b0686a3d2891980d5e303251b075a3bccae2c2ff650747db2620a649b98fa8",
+        "tokenizer.json": "c90dfa01249db1be4245780a052ede752e1361c612ac6d08e2bdada7d599476b",
+        "tokenizer_config.json": "6ac8c8dc065ed118161d02dd532749ae3f52c243deac27872134fae2f50d8547"
+      },
+      "source_code_sha256": {}
+    },
+    "native": {
+      "source_sha256": "6932765e10d68446431a035a036303d0fadd7806e8066c03620d86c30fe714fc",
+      "export_sha256": "874f9ea164759bd62fd9bde3274a72f0d814ccf985c8d809bf7d0aab91f60bbd",
+      "rows": 2048,
+      "versions": {
+        "torch": "2.13.0",
+        "vllm": "0.31.0",
+        "transformers": "5.17.0",
+        "gigatoken": "0.10.0"
+      },
+      "data_sha256": {
+        "bindings.jsonl": "228a23a77ad47a5a55e32d24e7deae8a5dca8354f8f65956366a0a2d1af9983f",
+        "rows/key_value/phase_0.jsonl": "306f87d3e2fc799b2ac8dd606fec307045c3796a41624d55c4ada9e91f2d4840",
+        "rows/key_value/phase_1.jsonl": "b15673b21e18fb9e78b6fd3f592eed98a6b25a3163aba57dcb00280bb4c9ba43",
+        "rows/key_value/phase_2.jsonl": "0ef3cb57d5271ccfd741e06c2c106681aedd4e5da85d6ef7dd59102293b1d32a",
+        "rows/key_value/phase_3.jsonl": "f864478991df61db2faeccdfe892d556e0aefa0c3db886a5d12960000b3f3831",
+        "rows/key_value/phase_4.jsonl": "eef0e927ca088c3073365a1a342e3aad512d45bd1081cb46b0f5d58f9321c240",
+        "rows/key_value/phase_5.jsonl": "78f189f9384ffd0e68e7b0814048e57f60d89b6b77543ab2c7f1d367354d82d6",
+        "rows/key_value/phase_6.jsonl": "4542113bb46e00fe7c7492ec704bc0e3dccf63af889e788c369e0ff84d247f3b",
+        "rows/key_value/phase_7.jsonl": "faae84e449000677b10ba7021a02a2de94b4c6010e16de429638a736b1c76051",
+        "sentence_schedule.jsonl": "913b166324ca8399f490a72f86dffcbb837db9b1608ef5a36b11773a5037fc81",
+        "metadata.json": "835e527e87c40b4a00913f54bf4d3c1540f7627a98fa162b4d0705ebb23a14f7"
+      },
+      "model_files_sha256": {
+        "config.json": "bb8f01c42cb92a52ca72e65afb4d5bd8d11aef083cd210e8de25dfb904f23e9f",
+        "model.safetensors.index.json": "3c3f40366a53c3fd7974b4eab7881a365a98c2a4329150befebab99fe7c18b05",
+        "tokenizer.json": "19e773648cb4e65de8660ea6365e10acca112d42a854923df93db4a6f333a82d",
+        "tokenizer_config.json": "98b1271574f41abf89427ae2dda030d94dc9478f0edc5a8bd240db213c6fd5fc"
+      },
+      "source_code_sha256": {
+        "patch.py": "d18f93cadece3bb7e098ee3f1a5c090238dbee3a2a28be99e6450ab7d4b1250e",
+        "kernels.py": "6b4fff8c7fdcd9fe76f82fb4c26285c7134833439bcbb6704f707c3eedb3fe54",
+        "worker_control.py": "feb71ffbdb6d6b5bbc5dcaaa00032dbb39c74634a58fa4ed170e86e4e17caba5",
+        "baseline_autotune_configs.json": "b57fb71aa45edbb699fa83a726872f7b961b0a4c928ee86bd05959dda758cc7b"
+      }
+    },
+    "hisa": {
+      "source_sha256": "d7b3be87c84daca9135cb2e1e0b5a99be1561d12faba2a599c36247f437a4ab8",
+      "export_sha256": "bd35d485cfc45a88ff3980b02f4c84f1083377aae8be8a69bf455e99d70070fa",
+      "rows": 2048,
+      "versions": {
+        "torch": "2.13.0",
+        "vllm": "0.31.0",
+        "transformers": "5.17.0",
+        "gigatoken": "0.10.0"
+      },
+      "data_sha256": {
+        "bindings.jsonl": "228a23a77ad47a5a55e32d24e7deae8a5dca8354f8f65956366a0a2d1af9983f",
+        "rows/key_value/phase_0.jsonl": "306f87d3e2fc799b2ac8dd606fec307045c3796a41624d55c4ada9e91f2d4840",
+        "rows/key_value/phase_1.jsonl": "b15673b21e18fb9e78b6fd3f592eed98a6b25a3163aba57dcb00280bb4c9ba43",
+        "rows/key_value/phase_2.jsonl": "0ef3cb57d5271ccfd741e06c2c106681aedd4e5da85d6ef7dd59102293b1d32a",
+        "rows/key_value/phase_3.jsonl": "f864478991df61db2faeccdfe892d556e0aefa0c3db886a5d12960000b3f3831",
+        "rows/key_value/phase_4.jsonl": "eef0e927ca088c3073365a1a342e3aad512d45bd1081cb46b0f5d58f9321c240",
+        "rows/key_value/phase_5.jsonl": "78f189f9384ffd0e68e7b0814048e57f60d89b6b77543ab2c7f1d367354d82d6",
+        "rows/key_value/phase_6.jsonl": "4542113bb46e00fe7c7492ec704bc0e3dccf63af889e788c369e0ff84d247f3b",
+        "rows/key_value/phase_7.jsonl": "faae84e449000677b10ba7021a02a2de94b4c6010e16de429638a736b1c76051",
+        "sentence_schedule.jsonl": "913b166324ca8399f490a72f86dffcbb837db9b1608ef5a36b11773a5037fc81",
+        "metadata.json": "835e527e87c40b4a00913f54bf4d3c1540f7627a98fa162b4d0705ebb23a14f7"
+      },
+      "model_files_sha256": {
+        "config.json": "bb8f01c42cb92a52ca72e65afb4d5bd8d11aef083cd210e8de25dfb904f23e9f",
+        "model.safetensors.index.json": "3c3f40366a53c3fd7974b4eab7881a365a98c2a4329150befebab99fe7c18b05",
+        "tokenizer.json": "19e773648cb4e65de8660ea6365e10acca112d42a854923df93db4a6f333a82d",
+        "tokenizer_config.json": "98b1271574f41abf89427ae2dda030d94dc9478f0edc5a8bd240db213c6fd5fc"
+      },
+      "source_code_sha256": {
+        "score_pair.py": "fa747dcff5803444abdbcb1142087109c596c27e7648d762d434a321633ed183",
+        "patch.py": "d18f93cadece3bb7e098ee3f1a5c090238dbee3a2a28be99e6450ab7d4b1250e",
+        "kernels.py": "6b4fff8c7fdcd9fe76f82fb4c26285c7134833439bcbb6704f707c3eedb3fe54",
+        "worker_two_stage.py": "1ba9835ca9342287400d6f28baa2368811743c5e74d653538a4fcb3eac5713b8",
+        "baseline_autotune_configs.json": "b57fb71aa45edbb699fa83a726872f7b961b0a4c928ee86bd05959dda758cc7b"
+      },
+      "native_indexer_sha256": "549f94234e44000c0b9995745328fd262b7ff69e62c6089ad049f65a7573914d"
+    },
+    "dsa": {
+      "source_sha256": "60e2eaecc1bf352461562d5a7030c190ef9a1c67de75021cd1b184bfe01239e3",
+      "export_sha256": "c902479ed2072d17d4d1d7aae4ca0c496a9066ba64236d6918303c1d759fb1de",
+      "rows": 2048,
+      "versions": {
+        "torch": "2.13.0",
+        "vllm": "0.31.0",
+        "transformers": "5.17.0",
+        "gigatoken": "0.10.0"
+      },
+      "data_sha256": {
+        "bindings.jsonl": "228a23a77ad47a5a55e32d24e7deae8a5dca8354f8f65956366a0a2d1af9983f",
+        "rows/key_value/phase_0.jsonl": "306f87d3e2fc799b2ac8dd606fec307045c3796a41624d55c4ada9e91f2d4840",
+        "rows/key_value/phase_1.jsonl": "b15673b21e18fb9e78b6fd3f592eed98a6b25a3163aba57dcb00280bb4c9ba43",
+        "rows/key_value/phase_2.jsonl": "0ef3cb57d5271ccfd741e06c2c106681aedd4e5da85d6ef7dd59102293b1d32a",
+        "rows/key_value/phase_3.jsonl": "f864478991df61db2faeccdfe892d556e0aefa0c3db886a5d12960000b3f3831",
+        "rows/key_value/phase_4.jsonl": "eef0e927ca088c3073365a1a342e3aad512d45bd1081cb46b0f5d58f9321c240",
+        "rows/key_value/phase_5.jsonl": "78f189f9384ffd0e68e7b0814048e57f60d89b6b77543ab2c7f1d367354d82d6",
+        "rows/key_value/phase_6.jsonl": "4542113bb46e00fe7c7492ec704bc0e3dccf63af889e788c369e0ff84d247f3b",
+        "rows/key_value/phase_7.jsonl": "faae84e449000677b10ba7021a02a2de94b4c6010e16de429638a736b1c76051",
+        "sentence_schedule.jsonl": "913b166324ca8399f490a72f86dffcbb837db9b1608ef5a36b11773a5037fc81",
+        "metadata.json": "835e527e87c40b4a00913f54bf4d3c1540f7627a98fa162b4d0705ebb23a14f7"
+      },
+      "model_files_sha256": {
+        "config.json": "bb8f01c42cb92a52ca72e65afb4d5bd8d11aef083cd210e8de25dfb904f23e9f",
+        "model.safetensors.index.json": "3c3f40366a53c3fd7974b4eab7881a365a98c2a4329150befebab99fe7c18b05",
+        "tokenizer.json": "19e773648cb4e65de8660ea6365e10acca112d42a854923df93db4a6f333a82d",
+        "tokenizer_config.json": "98b1271574f41abf89427ae2dda030d94dc9478f0edc5a8bd240db213c6fd5fc"
+      },
+      "source_code_sha256": {
+        "score_pair.py": "fa747dcff5803444abdbcb1142087109c596c27e7648d762d434a321633ed183",
+        "patch.py": "d18f93cadece3bb7e098ee3f1a5c090238dbee3a2a28be99e6450ab7d4b1250e",
+        "kernels.py": "6b4fff8c7fdcd9fe76f82fb4c26285c7134833439bcbb6704f707c3eedb3fe54",
+        "worker_two_stage.py": "1ba9835ca9342287400d6f28baa2368811743c5e74d653538a4fcb3eac5713b8",
+        "baseline_autotune_configs.json": "b57fb71aa45edbb699fa83a726872f7b961b0a4c928ee86bd05959dda758cc7b"
+      },
+      "native_indexer_sha256": "549f94234e44000c0b9995745328fd262b7ff69e62c6089ad049f65a7573914d"
+    }
+  }
+}

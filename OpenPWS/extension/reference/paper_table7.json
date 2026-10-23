@@ -1,0 +1,36 @@
+{
+  "source": "arXiv:2609.36322, Table 7",
+  "metric": "Answer-prefix accuracy percent, source-key residue mod 8",
+  "models": {
+    "v4": {
+      "name": "DeepSeek-V4-Flash-0731",
+      "n_per_residue": 256,
+      "accuracy_percent": [
+        80.47,
+        88.67,
+        98.05,
+        96.48,
+        81.25,
+        90.23,
+        99.61,
+        96.09
+      ],
+      "gap_pp": 19.14
+    },
+    "v41": {
+      "name": "DeepSeek-V4.1-Flash",
+      "n_per_residue": 2560,
+      "accuracy_percent": [
+        95.0,
+        89.22,
+        95.12,
+        89.69,
+        94.69,
+        90.31,
+        95.31,
+        89.73
+      ],
+      "gap_pp": 6.09
+    }
+  }
+}

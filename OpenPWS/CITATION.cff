@@ -1,0 +1,44 @@
+cff-version: 1.2.0
+message: "If you use this code, please cite the paper."
+title: "Periodic Weak Spots: Phase Sensitivity from Chunked KV-Cache Compression"
+authors:
+  - family-names: Zhu
+    given-names: Xingyu
+  - family-names: Yi
+    given-names: Pu
+  - family-names: Cheng
+    given-names: Ziheng
+  - family-names: Lv
+    given-names: Ang
+  - family-names: Liu
+    given-names: Jing
+  - family-names: Ying
+    given-names: Lexing
+  - family-names: Ma
+    given-names: Yiyuan
+  - family-names: Dong
+    given-names: Xin
+license: MIT
+preferred-citation:
+  type: article
+  title: "Periodic Weak Spots: Phase Sensitivity from Chunked KV-Cache Compression"
+  authors:
+    - family-names: Zhu
+      given-names: Xingyu
+    - family-names: Yi
+      given-names: Pu
+    - family-names: Cheng
+      given-names: Ziheng
+    - family-names: Lv
+      given-names: Ang
+    - family-names: Liu
+      given-names: Jing
+    - family-names: Ying
+      given-names: Lexing
+    - family-names: Ma
+      given-names: Yiyuan
+    - family-names: Dong
+      given-names: Xin
+  journal: "arXiv preprint arXiv:2609.36322"
+  year: 2026
+  url: "https://arxiv.org/abs/2609.36322"

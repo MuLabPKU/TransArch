@@ -1,0 +1,68 @@
+{
+  "backbone": {
+    "architectures": [
+      "Qwen3KVCForCausalLM"
+    ],
+    "attention_bias": false,
+    "attention_dropout": 0.0,
+    "bos_token_id": 151643,
+    "eos_token_id": 151645,
+    "head_dim": 128,
+    "hidden_act": "silu",
+    "hidden_size": 1024,
+    "initializer_range": 0.02,
+    "intermediate_size": 3072,
+    "max_position_embeddings": 40960,
+    "model_type": "qwen3_kvc",
+    "num_attention_heads": 16,
+    "num_hidden_layers": 28,
+    "pad_token_id": null,
+    "rms_norm_eps": 1e-06,
+    "rope_parameters": {
+      "rope_theta": 1000000.0,
+      "rope_type": "default"
+    },
+    "tie_word_embeddings": true,
+    "use_cache": false,
+    "use_sliding_window": false,
+    "vocab_size": 151936
+  },
+  "kvc": {
+    "attention_backend": "flex_attention",
+    "c_bias": false,
+    "c_group_ids": [
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0
+    ],
+    "c_init_std": 0.02,
+    "c_trainable": true,
+    "compression_pooling": "adaptive_softmax",
+    "compression_stride": 4,
+    "compression_window": 8,
+    "gate_mode": "vector",
+    "kv_sharing": true,
+    "local_attention_mode": "fixed_swa",
+    "num_key_value_heads": 1,
+    "rope_dims": 16,
+    "swa_window_size": 16,
+    "z_bias": true,
+    "z_group_ids": [
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0
+    ],
+    "z_init_std": 0.02,
+    "z_trainable": true
+  }
+}

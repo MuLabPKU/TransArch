@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=80"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "periodic-weak-spots"
+version = "0.1.0"
+description = "NIAH data, Qwen3-KVC models, and causal interventions for 'Periodic Weak Spots: Phase Sensitivity from Chunked KV-Cache Compression'"
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+  { name = "Xingyu Zhu" },
+  { name = "Pu Yi" },
+  { name = "Ziheng Cheng" },
+  { name = "Ang Lv" },
+  { name = "Jing Liu" },
+  { name = "Lexing Ying" },
+  { name = "Yiyuan Ma" },
+  { name = "Xin Dong" },
+]
+classifiers = [
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Operating System :: POSIX :: Linux",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+  "datasets>=5,<6",
+  "gigatoken>=0.10,<0.11",
+  "numpy>=2,<3",
+  "torch>=2.8",
+  "transformers>=5,<6",
+]
+
+[project.urls]
+Paper = "https://arxiv.org/abs/2609.36322"
+
+[dependency-groups]
+dev = ["ruff>=0.12"]
+
+[tool.setuptools.packages.find]
+include = ["periodic_weak_spots*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

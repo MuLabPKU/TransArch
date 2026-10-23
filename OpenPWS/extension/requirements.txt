@@ -1,0 +1,6 @@
+vllm==0.31.0
+flashinfer-python==0.7.0.post1
+transformers==5.17.0
+gigatoken==0.10.0
+datasets==5.1.0
+matplotlib>=3.9,<4

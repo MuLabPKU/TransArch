@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "suite_id": "in-sequence-padding-calibration",
+  "tokenizer": {
+    "tokenizer_id": "Qwen/Qwen3-0.6B",
+    "revision": "9d4bfd9a94aa5f2ab18d77fa457c306da0b8e439"
+  },
+  "token_pool_manifest": "animal_name_pool.json",
+  "sentence_source": null,
+  "episode": {
+    "strides": [
+      3,
+      4,
+      6,
+      8,
+      12
+    ],
+    "pair_count": 64,
+    "target_index": 24,
+    "samples_per_residue": 1000,
+    "sample_index_start": 1000,
+    "postfill_mode": "synthetic",
+    "fixed_filler_total": 48,
+    "seed": 20260722,
+    "k_shot": 8,
+    "few_shot_seed": 20260722,
+    "max_sequence_length": 512,
+    "body_spacing": {
+      "mode": "randomized_gaps",
+      "pad_text": "\uff5c",
+      "pad_token_id": 130957,
+      "outer_guard_tokens": 24,
+      "total_gap_extras": 126,
+      "max_gap_extras": 4,
+      "reference_filler_offset": 24,
+      "reference_suite_id": "prefix-padding"
+    }
+  },
+  "template": {
+    "layout_name": "descriptor-prefill-animal-name-body-postfill-recall",
+    "task_descriptor": "Remember each animal's assigned human name.\n",
+    "filler_suffix": "\n\n",
+    "mapping_start": " Animal-name pairs:\n",
+    "pair_template": "{key}{value}\n",
+    "recall_query_prefix": " Recall the requested animal names:\n",
+    "demonstration_template": "{key}{value}\n",
+    "target_template": "{key}"
+  }
+}

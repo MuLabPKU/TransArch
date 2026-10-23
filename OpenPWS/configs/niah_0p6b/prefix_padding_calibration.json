@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "suite_id": "prefix-padding-calibration",
+  "tokenizer": {
+    "tokenizer_id": "Qwen/Qwen3-0.6B",
+    "revision": "9d4bfd9a94aa5f2ab18d77fa457c306da0b8e439"
+  },
+  "token_pool_manifest": "animal_name_pool.json",
+  "sentence_source": {
+    "dataset_id": "agentlans/high-quality-english-sentences",
+    "revision": "5dfcb23b31fa9b85ce90b5713fcbba29179f2401",
+    "split": "train",
+    "text_field": "text",
+    "shuffle_seed": 20260720,
+    "maximum_rows_scanned": 1000000,
+    "minimum_token_length": 24,
+    "maximum_token_length": 120,
+    "maximum_per_bin": 64
+  },
+  "episode": {
+    "strides": [
+      3,
+      4,
+      6,
+      8,
+      12
+    ],
+    "pair_count": 64,
+    "target_index": 24,
+    "samples_per_residue": 1000,
+    "sample_index_start": 1000,
+    "postfill_mode": "natural",
+    "fixed_filler_total": 144,
+    "seed": 20260722,
+    "k_shot": 8,
+    "few_shot_seed": 20260722,
+    "max_sequence_length": 512
+  },
+  "template": {
+    "layout_name": "descriptor-prefill-animal-name-body-postfill-recall",
+    "task_descriptor": "Remember each animal's assigned human name.\n",
+    "filler_suffix": "\n\n",
+    "mapping_start": " Animal-name pairs:\n",
+    "pair_template": "{key}{value}\n",
+    "recall_query_prefix": " Recall the requested animal names:\n",
+    "demonstration_template": "{key}{value}\n",
+    "target_template": "{key}"
+  }
+}

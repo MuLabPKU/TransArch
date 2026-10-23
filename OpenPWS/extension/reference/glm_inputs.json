@@ -1,0 +1,85 @@
+{
+  "config": {
+    "schema_version": 1,
+    "experiment_id": "glm53flash-128k-balanced-target64k-16000pairs-quoted-v1",
+    "source": {
+      "dataset_id": "agentlans/high-quality-english-sentences",
+      "revision": "5dfcb23b31fa9b85ce90b5713fcbba29179f2401",
+      "split": "train",
+      "text_field": "text",
+      "shuffle_seed": 20260720
+    },
+    "tokenizer": {
+      "model_id": "zai-org/GLM-5.3-Flash",
+      "revision": "local-sha256:19e773648cb4e65de8660ea6365e10acca112d42a854923df93db4a6f333a82d"
+    },
+    "candidate_pool": {
+      "min_token_id": 10000,
+      "max_characters": 16,
+      "text_class": "alphabetic",
+      "require_record_stability": true,
+      "require_query_stability": true,
+      "master_pair_count": 16000
+    },
+    "layout": {
+      "prompt_tokens": 128000,
+      "pair_count": 16000,
+      "master_pair_count": 16000,
+      "target_index": 248,
+      "natural_filler_tokens": 48,
+      "alignment": 8,
+      "query_separator": "\n\n",
+      "pad_token": "｜",
+      "record_separator": "。",
+      "target_pair_mean": 64000,
+      "body_prefix_guard_token": "｜",
+      "tail_guard_token": "｜"
+    },
+    "phase_design": {
+      "modulus": 8,
+      "rows_per_phase": 256,
+      "prefill_min": 8,
+      "prefill_max": 40,
+      "mean": 24,
+      "second_raw_moment": 604,
+      "sentence_pair_count": 1024,
+      "distinct_sentence_count": 2048,
+      "schedule_seed": 20260721
+    },
+    "matrix": {
+      "forms": [
+        "key_value"
+      ],
+      "phases": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ]
+    },
+    "binding_seed": 20260625,
+    "dataset_role": "custom",
+    "sample_prefix": "glm53flash"
+  },
+  "query": {
+    "QUERY_PREFIX": "Now answer the question using the key-value pairs above. What is the value for key \"",
+    "QUERY_MIDDLE": "\"? Answer with only the value. The value for key \"",
+    "QUERY_SUFFIX": "\" is "
+  },
+  "tokenizer_sha256": "19e773648cb4e65de8660ea6365e10acca112d42a854923df93db4a6f333a82d",
+  "adapter_sha256": "20faef8f792e5c793320c0bcf7cfd3db59f5d5c23e958e311ce6862f1b1f446d",
+  "prepare_sha256": "f9301b3a1d441a2d0e557d913693f398d53df27266ceb5272ec6ea1dba4a99ba",
+  "upstream_commit": "09c109910ba29b834f54441d96b442ab9e1634ae",
+  "filler_sha256": "b3a70ebc054f2eab5057baf3c4b7e857711472be8086240a516fd29b648ad857",
+  "filler_matches_paper": false,
+  "model_files_sha256": {
+    "config.json": "bb8f01c42cb92a52ca72e65afb4d5bd8d11aef083cd210e8de25dfb904f23e9f",
+    "tokenizer.json": "19e773648cb4e65de8660ea6365e10acca112d42a854923df93db4a6f333a82d",
+    "tokenizer_config.json": "98b1271574f41abf89427ae2dda030d94dc9478f0edc5a8bd240db213c6fd5fc",
+    "model.safetensors.index.json": "3c3f40366a53c3fd7974b4eab7881a365a98c2a4329150befebab99fe7c18b05"
+  }
+}

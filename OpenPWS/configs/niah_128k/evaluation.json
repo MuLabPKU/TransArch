@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "experiment_id": "niah-128k-balanced-target64k-16000pairs",
+  "source": {
+    "dataset_id": "agentlans/high-quality-english-sentences",
+    "revision": "5dfcb23b31fa9b85ce90b5713fcbba29179f2401",
+    "split": "train",
+    "text_field": "text",
+    "shuffle_seed": 20260720
+  },
+  "tokenizer": {
+    "model_id": "deepseek-ai/DeepSeek-V4-Flash",
+    "revision": "60d8d70770c6776ff598c94bb586a859a38244f1"
+  },
+  "candidate_pool": {
+    "min_token_id": 10000,
+    "max_characters": 16,
+    "text_class": "alphabetic",
+    "require_record_stability": true,
+    "require_query_stability": true,
+    "master_pair_count": 16000
+  },
+  "layout": {
+    "prompt_tokens": 128000,
+    "pair_count": 16000,
+    "master_pair_count": 16000,
+    "target_index": 248,
+    "natural_filler_tokens": 48,
+    "alignment": 8,
+    "query_separator": "\n\n",
+    "pad_token": "｜",
+    "record_separator": "。",
+    "target_pair_mean": 64000,
+    "body_prefix_guard_token": "｜",
+    "tail_guard_token": "｜"
+  },
+  "phase_design": {
+    "modulus": 8,
+    "rows_per_phase": 256,
+    "prefill_min": 8,
+    "prefill_max": 40,
+    "mean": 24,
+    "second_raw_moment": 604,
+    "sentence_pair_count": 1024,
+    "distinct_sentence_count": 2048,
+    "schedule_seed": 20260721
+  },
+  "matrix": {
+    "forms": [
+      "key_value"
+    ],
+    "phases": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ]
+  },
+  "binding_seed": 20260625,
+  "dataset_role": "evaluation",
+  "sample_prefix": "niah128k"
+}

@@ -1,0 +1,804 @@
+{
+  "curation": "allowlist",
+  "keys": [
+    {
+      "source_word": "ant",
+      "text": " ant",
+      "token_id": 3196
+    },
+    {
+      "source_word": "ape",
+      "text": " ape",
+      "token_id": 84880
+    },
+    {
+      "source_word": "bear",
+      "text": " bear",
+      "token_id": 11722
+    },
+    {
+      "source_word": "bee",
+      "text": " bee",
+      "token_id": 37228
+    },
+    {
+      "source_word": "beetle",
+      "text": " beetle",
+      "token_id": 97386
+    },
+    {
+      "source_word": "butterfly",
+      "text": " butterfly",
+      "token_id": 55169
+    },
+    {
+      "source_word": "camel",
+      "text": " camel",
+      "token_id": 49152
+    },
+    {
+      "source_word": "carp",
+      "text": " carp",
+      "token_id": 38639
+    },
+    {
+      "source_word": "cat",
+      "text": " cat",
+      "token_id": 8251
+    },
+    {
+      "source_word": "chicken",
+      "text": " chicken",
+      "token_id": 16158
+    },
+    {
+      "source_word": "cod",
+      "text": " cod",
+      "token_id": 20329
+    },
+    {
+      "source_word": "cougar",
+      "text": " cougar",
+      "token_id": 47091
+    },
+    {
+      "source_word": "cow",
+      "text": " cow",
+      "token_id": 19362
+    },
+    {
+      "source_word": "crab",
+      "text": " crab",
+      "token_id": 59412
+    },
+    {
+      "source_word": "crow",
+      "text": " crow",
+      "token_id": 9276
+    },
+    {
+      "source_word": "deer",
+      "text": " deer",
+      "token_id": 38049
+    },
+    {
+      "source_word": "dinosaur",
+      "text": " dinosaur",
+      "token_id": 62889
+    },
+    {
+      "source_word": "dog",
+      "text": " dog",
+      "token_id": 5562
+    },
+    {
+      "source_word": "dolphin",
+      "text": " dolphin",
+      "token_id": 98169
+    },
+    {
+      "source_word": "dove",
+      "text": " dove",
+      "token_id": 47222
+    },
+    {
+      "source_word": "duck",
+      "text": " duck",
+      "token_id": 35985
+    },
+    {
+      "source_word": "eagle",
+      "text": " eagle",
+      "token_id": 59889
+    },
+    {
+      "source_word": "elephant",
+      "text": " elephant",
+      "token_id": 45740
+    },
+    {
+      "source_word": "elk",
+      "text": " elk",
+      "token_id": 76842
+    },
+    {
+      "source_word": "flea",
+      "text": " flea",
+      "token_id": 95855
+    },
+    {
+      "source_word": "fox",
+      "text": " fox",
+      "token_id": 38835
+    },
+    {
+      "source_word": "frog",
+      "text": " frog",
+      "token_id": 59881
+    },
+    {
+      "source_word": "goat",
+      "text": " goat",
+      "token_id": 53292
+    },
+    {
+      "source_word": "goose",
+      "text": " goose",
+      "token_id": 62137
+    },
+    {
+      "source_word": "hare",
+      "text": " hare",
+      "token_id": 94918
+    },
+    {
+      "source_word": "hawk",
+      "text": " hawk",
+      "token_id": 75820
+    },
+    {
+      "source_word": "hog",
+      "text": " hog",
+      "token_id": 45925
+    },
+    {
+      "source_word": "horse",
+      "text": " horse",
+      "token_id": 15223
+    },
+    {
+      "source_word": "leopard",
+      "text": " leopard",
+      "token_id": 97993
+    },
+    {
+      "source_word": "lion",
+      "text": " lion",
+      "token_id": 39032
+    },
+    {
+      "source_word": "lizard",
+      "text": " lizard",
+      "token_id": 94811
+    },
+    {
+      "source_word": "llama",
+      "text": " llama",
+      "token_id": 93676
+    },
+    {
+      "source_word": "lobster",
+      "text": " lobster",
+      "token_id": 79715
+    },
+    {
+      "source_word": "monkey",
+      "text": " monkey",
+      "token_id": 38703
+    },
+    {
+      "source_word": "mosquito",
+      "text": " mosquito",
+      "token_id": 49546
+    },
+    {
+      "source_word": "moth",
+      "text": " moth",
+      "token_id": 97078
+    },
+    {
+      "source_word": "owl",
+      "text": " owl",
+      "token_id": 52269
+    },
+    {
+      "source_word": "panda",
+      "text": " panda",
+      "token_id": 88222
+    },
+    {
+      "source_word": "pig",
+      "text": " pig",
+      "token_id": 23694
+    },
+    {
+      "source_word": "pigeon",
+      "text": " pigeon",
+      "token_id": 92544
+    },
+    {
+      "source_word": "rabbit",
+      "text": " rabbit",
+      "token_id": 38724
+    },
+    {
+      "source_word": "rat",
+      "text": " rat",
+      "token_id": 11244
+    },
+    {
+      "source_word": "salmon",
+      "text": " salmon",
+      "token_id": 40320
+    },
+    {
+      "source_word": "shark",
+      "text": " shark",
+      "token_id": 43792
+    },
+    {
+      "source_word": "sheep",
+      "text": " sheep",
+      "token_id": 31912
+    },
+    {
+      "source_word": "shrimp",
+      "text": " shrimp",
+      "token_id": 55526
+    },
+    {
+      "source_word": "snake",
+      "text": " snake",
+      "token_id": 25265
+    },
+    {
+      "source_word": "spider",
+      "text": " spider",
+      "token_id": 34354
+    },
+    {
+      "source_word": "squid",
+      "text": " squid",
+      "token_id": 89175
+    },
+    {
+      "source_word": "squirrel",
+      "text": " squirrel",
+      "token_id": 90524
+    },
+    {
+      "source_word": "tiger",
+      "text": " tiger",
+      "token_id": 51735
+    },
+    {
+      "source_word": "trout",
+      "text": " trout",
+      "token_id": 79727
+    },
+    {
+      "source_word": "tuna",
+      "text": " tuna",
+      "token_id": 73957
+    },
+    {
+      "source_word": "turtle",
+      "text": " turtle",
+      "token_id": 36089
+    },
+    {
+      "source_word": "viper",
+      "text": " viper",
+      "token_id": 95132
+    },
+    {
+      "source_word": "whale",
+      "text": " whale",
+      "token_id": 50019
+    },
+    {
+      "source_word": "wolf",
+      "text": " wolf",
+      "token_id": 36542
+    },
+    {
+      "source_word": "worm",
+      "text": " worm",
+      "token_id": 34211
+    },
+    {
+      "source_word": "yak",
+      "text": " yak",
+      "token_id": 73678
+    }
+  ],
+  "schema_version": 2,
+  "selection": {
+    "animal_count": 64,
+    "animal_text_pattern": "^ [a-z]{3,12}$",
+    "k_shot": 8,
+    "name_count": 64,
+    "name_text_pattern": "^ [A-Z][a-z]{2,12}$"
+  },
+  "source": {
+    "animal_words": [
+      "ant",
+      "ape",
+      "bear",
+      "bee",
+      "beetle",
+      "butterfly",
+      "camel",
+      "carp",
+      "cat",
+      "chicken",
+      "cod",
+      "cougar",
+      "cow",
+      "crab",
+      "crow",
+      "deer",
+      "dinosaur",
+      "dog",
+      "dolphin",
+      "dove",
+      "duck",
+      "eagle",
+      "elephant",
+      "elk",
+      "flea",
+      "fox",
+      "frog",
+      "goat",
+      "goose",
+      "hare",
+      "hawk",
+      "hog",
+      "horse",
+      "leopard",
+      "lion",
+      "lizard",
+      "llama",
+      "lobster",
+      "monkey",
+      "mosquito",
+      "moth",
+      "owl",
+      "panda",
+      "pig",
+      "pigeon",
+      "rabbit",
+      "rat",
+      "salmon",
+      "shark",
+      "sheep",
+      "shrimp",
+      "snake",
+      "spider",
+      "squid",
+      "squirrel",
+      "tiger",
+      "trout",
+      "tuna",
+      "turtle",
+      "viper",
+      "whale",
+      "wolf",
+      "worm",
+      "yak"
+    ],
+    "name_words": [
+      "Alice",
+      "Amy",
+      "Anna",
+      "Anne",
+      "Beth",
+      "Carol",
+      "Clara",
+      "Diana",
+      "Donna",
+      "Elena",
+      "Ellen",
+      "Emily",
+      "Emma",
+      "Eva",
+      "Helen",
+      "Jane",
+      "Jill",
+      "Joan",
+      "Julia",
+      "Karen",
+      "Kathy",
+      "Laura",
+      "Linda",
+      "Lisa",
+      "Lucy",
+      "Maria",
+      "Marie",
+      "Molly",
+      "Nancy",
+      "Nina",
+      "Nora",
+      "Susan",
+      "Adam",
+      "Alan",
+      "Albert",
+      "Alex",
+      "Andrew",
+      "Anthony",
+      "Arthur",
+      "Ben",
+      "Bob",
+      "Brian",
+      "Bruce",
+      "Carl",
+      "Charles",
+      "Daniel",
+      "David",
+      "Dennis",
+      "Edward",
+      "Eric",
+      "Ethan",
+      "Frank",
+      "Fred",
+      "Gary",
+      "George",
+      "Gordon",
+      "Greg",
+      "Harold",
+      "Harry",
+      "Henry",
+      "Ian",
+      "Jack",
+      "James",
+      "Jason"
+    ],
+    "provenance_note": "Hand-curated common lexical knowledge, tokenizer/frequency sanity checked; not an authoritative WordNet or SSA source."
+  },
+  "template": {
+    "demonstration_template": "{key}{value}\n",
+    "filler_suffix": "\n\n",
+    "layout_name": "descriptor-prefill-animal-name-body-postfill-recall",
+    "mapping_start": " Animal-name pairs:\n",
+    "pair_template": "{key}{value}\n",
+    "recall_query_prefix": " Recall the requested animal names:\n",
+    "target_template": "{key}",
+    "task_descriptor": "Remember each animal's assigned human name.\n"
+  },
+  "tokenizer": {
+    "revision": "9d4bfd9a94aa5f2ab18d77fa457c306da0b8e439",
+    "tokenizer_id": "Qwen/Qwen3-0.6B"
+  },
+  "values": [
+    {
+      "source_word": "Alice",
+      "text": " Alice",
+      "token_id": 29405
+    },
+    {
+      "source_word": "Amy",
+      "text": " Amy",
+      "token_id": 28693
+    },
+    {
+      "source_word": "Anna",
+      "text": " Anna",
+      "token_id": 23223
+    },
+    {
+      "source_word": "Anne",
+      "text": " Anne",
+      "token_id": 27926
+    },
+    {
+      "source_word": "Beth",
+      "text": " Beth",
+      "token_id": 28003
+    },
+    {
+      "source_word": "Carol",
+      "text": " Carol",
+      "token_id": 10252
+    },
+    {
+      "source_word": "Clara",
+      "text": " Clara",
+      "token_id": 50557
+    },
+    {
+      "source_word": "Diana",
+      "text": " Diana",
+      "token_id": 44409
+    },
+    {
+      "source_word": "Donna",
+      "text": " Donna",
+      "token_id": 46763
+    },
+    {
+      "source_word": "Elena",
+      "text": " Elena",
+      "token_id": 68575
+    },
+    {
+      "source_word": "Ellen",
+      "text": " Ellen",
+      "token_id": 46585
+    },
+    {
+      "source_word": "Emily",
+      "text": " Emily",
+      "token_id": 34166
+    },
+    {
+      "source_word": "Emma",
+      "text": " Emma",
+      "token_id": 34935
+    },
+    {
+      "source_word": "Eva",
+      "text": " Eva",
+      "token_id": 54392
+    },
+    {
+      "source_word": "Helen",
+      "text": " Helen",
+      "token_id": 42781
+    },
+    {
+      "source_word": "Jane",
+      "text": " Jane",
+      "token_id": 21475
+    },
+    {
+      "source_word": "Jill",
+      "text": " Jill",
+      "token_id": 47211
+    },
+    {
+      "source_word": "Joan",
+      "text": " Joan",
+      "token_id": 50106
+    },
+    {
+      "source_word": "Julia",
+      "text": " Julia",
+      "token_id": 39294
+    },
+    {
+      "source_word": "Karen",
+      "text": " Karen",
+      "token_id": 34645
+    },
+    {
+      "source_word": "Kathy",
+      "text": " Kathy",
+      "token_id": 64198
+    },
+    {
+      "source_word": "Laura",
+      "text": " Laura",
+      "token_id": 29828
+    },
+    {
+      "source_word": "Linda",
+      "text": " Linda",
+      "token_id": 38062
+    },
+    {
+      "source_word": "Lisa",
+      "text": " Lisa",
+      "token_id": 28556
+    },
+    {
+      "source_word": "Lucy",
+      "text": " Lucy",
+      "token_id": 44070
+    },
+    {
+      "source_word": "Maria",
+      "text": " Maria",
+      "token_id": 23016
+    },
+    {
+      "source_word": "Marie",
+      "text": " Marie",
+      "token_id": 32016
+    },
+    {
+      "source_word": "Molly",
+      "text": " Molly",
+      "token_id": 57400
+    },
+    {
+      "source_word": "Nancy",
+      "text": " Nancy",
+      "token_id": 34236
+    },
+    {
+      "source_word": "Nina",
+      "text": " Nina",
+      "token_id": 63888
+    },
+    {
+      "source_word": "Nora",
+      "text": " Nora",
+      "token_id": 72545
+    },
+    {
+      "source_word": "Susan",
+      "text": " Susan",
+      "token_id": 29933
+    },
+    {
+      "source_word": "Adam",
+      "text": " Adam",
+      "token_id": 15037
+    },
+    {
+      "source_word": "Alan",
+      "text": " Alan",
+      "token_id": 25282
+    },
+    {
+      "source_word": "Albert",
+      "text": " Albert",
+      "token_id": 17513
+    },
+    {
+      "source_word": "Alex",
+      "text": " Alex",
+      "token_id": 8515
+    },
+    {
+      "source_word": "Andrew",
+      "text": " Andrew",
+      "token_id": 13615
+    },
+    {
+      "source_word": "Anthony",
+      "text": " Anthony",
+      "token_id": 20696
+    },
+    {
+      "source_word": "Arthur",
+      "text": " Arthur",
+      "token_id": 27586
+    },
+    {
+      "source_word": "Ben",
+      "text": " Ben",
+      "token_id": 7355
+    },
+    {
+      "source_word": "Bob",
+      "text": " Bob",
+      "token_id": 14261
+    },
+    {
+      "source_word": "Brian",
+      "text": " Brian",
+      "token_id": 17083
+    },
+    {
+      "source_word": "Bruce",
+      "text": " Bruce",
+      "token_id": 23845
+    },
+    {
+      "source_word": "Carl",
+      "text": " Carl",
+      "token_id": 21998
+    },
+    {
+      "source_word": "Charles",
+      "text": " Charles",
+      "token_id": 14927
+    },
+    {
+      "source_word": "Daniel",
+      "text": " Daniel",
+      "token_id": 15118
+    },
+    {
+      "source_word": "David",
+      "text": " David",
+      "token_id": 6798
+    },
+    {
+      "source_word": "Dennis",
+      "text": " Dennis",
+      "token_id": 34627
+    },
+    {
+      "source_word": "Edward",
+      "text": " Edward",
+      "token_id": 21891
+    },
+    {
+      "source_word": "Eric",
+      "text": " Eric",
+      "token_id": 16247
+    },
+    {
+      "source_word": "Ethan",
+      "text": " Ethan",
+      "token_id": 62164
+    },
+    {
+      "source_word": "Frank",
+      "text": " Frank",
+      "token_id": 9270
+    },
+    {
+      "source_word": "Fred",
+      "text": " Fred",
+      "token_id": 27488
+    },
+    {
+      "source_word": "Gary",
+      "text": " Gary",
+      "token_id": 23826
+    },
+    {
+      "source_word": "George",
+      "text": " George",
+      "token_id": 9857
+    },
+    {
+      "source_word": "Gordon",
+      "text": " Gordon",
+      "token_id": 25867
+    },
+    {
+      "source_word": "Greg",
+      "text": " Greg",
+      "token_id": 16046
+    },
+    {
+      "source_word": "Harold",
+      "text": " Harold",
+      "token_id": 52115
+    },
+    {
+      "source_word": "Harry",
+      "text": " Harry",
+      "token_id": 13928
+    },
+    {
+      "source_word": "Henry",
+      "text": " Henry",
+      "token_id": 17599
+    },
+    {
+      "source_word": "Ian",
+      "text": " Ian",
+      "token_id": 28235
+    },
+    {
+      "source_word": "Jack",
+      "text": " Jack",
+      "token_id": 7607
+    },
+    {
+      "source_word": "James",
+      "text": " James",
+      "token_id": 7801
+    },
+    {
+      "source_word": "Jason",
+      "text": " Jason",
+      "token_id": 18477
+    }
+  ]
+}
