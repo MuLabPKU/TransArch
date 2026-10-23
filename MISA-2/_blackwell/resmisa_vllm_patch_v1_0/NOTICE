@@ -1,0 +1,12 @@
+MISA-2 (ResMiSA) vLLM plugin
+
+This distribution contains adaptations of vLLM 0.17.0 (Apache-2.0), including
+resmisa_vllm_patch/resmisa_deepseek_v2.py and compat_vllm017.py.
+Copyright contributors to the vLLM project.
+Copyright 2023 The vLLM team.
+Copyright 2023 DeepSeek-AI and the HuggingFace Inc. team. All rights reserved.
+These files are modified for ResMISA model registration, indexer integration,
+and vLLM 0.17 compatibility. Original source notices are retained.
+
+External DeepGEMM (MIT) and CUTLASS/CuTe (BSD-3-Clause) headers, when required
+by the Blackwell variant, are obtained separately and are not bundled here.
