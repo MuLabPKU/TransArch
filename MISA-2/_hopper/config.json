@@ -1,0 +1,12 @@
+{
+  "use_resmisa": true,
+  "resmisa_minmax": true,
+  "resmisa_fuse": true,
+  "resmisa_topk_heads": 8,
+  "resmisa_decode_topk_heads": 8,
+  "resmisa_k_block_size": 1024,
+  "resmisa_use_qnorm": false,
+  "architectures": [
+    "ResMISAForCausalLM"
+  ]
+}
